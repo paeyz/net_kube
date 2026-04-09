@@ -22,3 +22,6 @@ secrets/
 
 *.swp
 *.swo
+
+# 외부에서 클론된 lab 소스 (bootstrap.sh 가 관리, 이 저장소에서 추적 안 함)
+cve-2025-1974-lab/

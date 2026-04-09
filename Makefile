@@ -1,5 +1,5 @@
 # Makefile — CVE-2025-1974 IngressNightmare Lab (메타 래퍼)
-# 실제 lab 코드는 ../cve-2025-1974-lab/ingressnightmare_project/ 에 위치
+# 실제 lab 코드는 cve-2025-1974-lab/ingressnightmare_project/ 에 위치 (bootstrap.sh 클론 위치)
 #
 # 사용법:
 #   make bootstrap    # 최초 환경 구성
@@ -13,7 +13,8 @@
 
 PYTHON     ?= python3
 LAB_ROOT   := $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
-REPO_DIR   := $(LAB_ROOT)/../cve-2025-1974-lab/ingressnightmare_project
+# bootstrap.sh 가 LAB_ROOT/cve-2025-1974-lab 에 클론하므로 동일 위치를 가리킴
+REPO_DIR   := $(LAB_ROOT)/cve-2025-1974-lab/ingressnightmare_project
 VENV       := $(REPO_DIR)/.venv
 VENV_PY    := $(VENV)/bin/python3
 BOOTSTRAP  := $(LAB_ROOT)/scripts/bootstrap.sh
