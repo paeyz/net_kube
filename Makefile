@@ -27,7 +27,8 @@ export PATH
 
 .PHONY: help bootstrap bootstrap-stage2 \
         run stop attack benign experiment clean check \
-        cluster-up cluster-down cluster-delete cluster-status webhook-info
+        cluster-up cluster-down cluster-delete cluster-status webhook-info \
+        poc poc-step1 poc-step2 poc-step3
 
 help:
 	@echo ""
