@@ -1,50 +1,71 @@
 # Makefile — CVE-2025-1974 IngressNightmare Lab (메타 래퍼)
 # 실제 lab 코드는 cve-2025-1974-lab/ingressnightmare_project/ 에 위치 (bootstrap.sh 클론 위치)
 #
-# 사용법:
-#   make bootstrap    # 최초 환경 구성
-#   make run          # collector + vulnerable admission 서버 동시 기동 (백그라운드)
-#   make stop         # 기동한 서버 종료
-#   make attack       # 공격 시뮬레이션 트래픽 전송
-#   make benign       # 정상 트래픽 전송
-#   make experiment   # 실험 실행 및 결과 저장
-#   make clean        # 로그/결과 삭제
-#   make help         # 이 도움말
+# [Stage 1 — Python mock 시뮬레이션]
+#   make bootstrap    최초 환경 구성 (클론 + venv + 의존성)
+#   make run          collector + vulnerable 서버 백그라운드 기동
+#   make stop         서버 종료
+#   make attack / benign / experiment
+#
+# [Stage 2 — Minikube + 취약 ingress-nginx]
+#   make cluster-up       클러스터 시작 (이미 존재하면 재시작)
+#   make cluster-down     클러스터 중지
+#   make cluster-delete   클러스터 삭제 (데이터 포함)
+#   make cluster-status   클러스터 및 ingress-nginx 상태 확인
+#   make webhook-info     admission webhook 엔드포인트 정보 출력
 
-PYTHON     ?= python3
-LAB_ROOT   := $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
-# bootstrap.sh 가 LAB_ROOT/cve-2025-1974-lab 에 클론하므로 동일 위치를 가리킴
-REPO_DIR   := $(LAB_ROOT)/cve-2025-1974-lab/ingressnightmare_project
-VENV       := $(REPO_DIR)/.venv
-VENV_PY    := $(VENV)/bin/python3
-BOOTSTRAP  := $(LAB_ROOT)/scripts/bootstrap.sh
+PYTHON          ?= python3
+LAB_ROOT        := $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
+REPO_DIR        := $(LAB_ROOT)/cve-2025-1974-lab/ingressnightmare_project
+VENV            := $(REPO_DIR)/.venv
+VENV_PY         := $(VENV)/bin/python3
+BOOTSTRAP       := $(LAB_ROOT)/scripts/bootstrap.sh
+BOOTSTRAP_S2    := $(LAB_ROOT)/scripts/bootstrap_stage2.sh
+MINIKUBE_PROFILE := cve-2025-1974-lab
+PATH            := $(HOME)/.local/bin:$(PATH)
+export PATH
 
-.PHONY: help bootstrap run stop attack benign experiment clean check
+.PHONY: help bootstrap bootstrap-stage2 \
+        run stop attack benign experiment clean check \
+        cluster-up cluster-down cluster-delete cluster-status webhook-info
 
 help:
 	@echo ""
-	@echo "CVE-2025-1974 IngressNightmare Lab — 사용 가능한 타겟:"
+	@echo "CVE-2025-1974 IngressNightmare Lab"
 	@echo ""
-	@echo "  make bootstrap    최초 환경 구성 (클론 + venv + 의존성)"
-	@echo "  make run          collector + vulnerable 서버 백그라운드 기동"
-	@echo "  make stop         백그라운드 서버 종료"
-	@echo "  make attack       공격 시뮬레이션 트래픽"
-	@echo "  make benign       정상 트래픽"
-	@echo "  make experiment   실험 실행 (결과: $(REPO_DIR)/safe_lab/runtime/results/)"
-	@echo "  make clean        로그/결과 초기화"
-	@echo "  make check        환경 상태 점검"
+	@echo "── Stage 1 (Python mock) ──────────────────────────────"
+	@echo "  make bootstrap      최초 환경 구성 (venv + 의존성)"
+	@echo "  make run            collector + admission 서버 기동"
+	@echo "  make stop           서버 종료"
+	@echo "  make attack         공격 시뮬레이션 트래픽"
+	@echo "  make benign         정상 트래픽"
+	@echo "  make experiment     실험 결과 수집"
+	@echo "  make clean          로그/결과 초기화"
+	@echo ""
+	@echo "── Stage 2 (Minikube + ingress-nginx v1.11.4) ─────────"
+	@echo "  make bootstrap-stage2   도구 설치 + 클러스터 생성 (최초 1회)"
+	@echo "  make cluster-up         클러스터 시작"
+	@echo "  make cluster-down       클러스터 중지"
+	@echo "  make cluster-delete     클러스터 삭제"
+	@echo "  make cluster-status     클러스터 + webhook 상태"
+	@echo "  make webhook-info       admission webhook 엔드포인트 상세"
+	@echo ""
+	@echo "  make check          전체 환경 점검"
 	@echo ""
 
+# ── Stage 1 ────────────────────────────────────────────────────────────────────
 bootstrap:
 	bash $(BOOTSTRAP)
 
 check:
-	@echo "[check] Python..."
+	@echo "=== Stage 1 ==="
 	@$(PYTHON) --version
-	@echo "[check] venv..."
 	@test -f $(VENV_PY) && echo "  venv OK: $(VENV_PY)" || echo "  venv 없음 — make bootstrap 실행 필요"
-	@echo "[check] 포트 18080 / 19090..."
-	@ss -tlnp 2>/dev/null | grep -E '18080|19090' || echo "  서버 미실행 (정상)"
+	@ss -tlnp 2>/dev/null | grep -E '18080|19090' || echo "  Python 서버 미실행"
+	@echo ""
+	@echo "=== Stage 2 ==="
+	@minikube status -p $(MINIKUBE_PROFILE) 2>/dev/null || echo "  클러스터 없음 또는 중지됨"
+	@kubectl get pods -n ingress-nginx 2>/dev/null || echo "  ingress-nginx 상태 조회 불가"
 
 # 두 서버를 백그라운드로 동시 기동 (PID 파일로 관리)
 run: _check_venv
@@ -86,3 +107,42 @@ clean:
 
 _check_venv:
 	@test -f $(VENV_PY) || (echo "[ERROR] venv 없음. 먼저 'make bootstrap' 실행" && exit 1)
+
+# ── Stage 2 ────────────────────────────────────────────────────────────────────
+bootstrap-stage2:
+	bash $(BOOTSTRAP_S2)
+
+cluster-up:
+	minikube start -p $(MINIKUBE_PROFILE) --wait all
+
+cluster-down:
+	minikube stop -p $(MINIKUBE_PROFILE)
+
+cluster-delete:
+	@echo "⚠  클러스터 전체 삭제: $(MINIKUBE_PROFILE)"
+	@read -p "계속하려면 Enter, 취소하려면 Ctrl-C: " _
+	minikube delete -p $(MINIKUBE_PROFILE)
+
+cluster-status:
+	@echo "=== Minikube ==="
+	@minikube status -p $(MINIKUBE_PROFILE)
+	@echo ""
+	@echo "=== Nodes ==="
+	@kubectl get nodes -o wide
+	@echo ""
+	@echo "=== ingress-nginx Pods ==="
+	@kubectl get pods -n ingress-nginx -o wide
+	@echo ""
+	@echo "=== ValidatingWebhookConfiguration ==="
+	@kubectl get validatingwebhookconfigurations
+
+webhook-info:
+	@echo "=== Admission Webhook 상세 ==="
+	@kubectl get validatingwebhookconfigurations ingress-nginx-admission -o yaml
+	@echo ""
+	@echo "=== Controller Image ==="
+	@kubectl get deploy ingress-nginx-controller -n ingress-nginx \
+	  -o jsonpath='{.spec.template.spec.containers[0].image}' && echo ""
+	@echo ""
+	@echo "=== Webhook Service ==="
+	@kubectl get svc ingress-nginx-controller-admission -n ingress-nginx

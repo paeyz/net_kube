@@ -3,7 +3,15 @@
 > **목적**: [zsxen/cve-2025-1974-lab](https://github.com/zsxen/cve-2025-1974-lab/tree/master/ingressnightmare_project)
 > 프로젝트를 로컬에서 재현 가능하게 실행하기 위한 가이드.
 >
-> **안전 원칙**: 모든 트래픽은 `127.0.0.1` 루프백으로 한정. Kubernetes 불필요. 실제 exploit/무기화 코드 없음.
+> **안전 원칙**: 개인 로컬/격리 환경 전용. 외부 대상 테스트 없음. 실제 exploit/무기화 코드 없음.
+
+## 단계 개요
+
+| 단계 | 내용 | 상태 |
+|------|------|------|
+| **Stage 1** | Python mock 시뮬레이션 (Kubernetes 불필요) | 완료 |
+| **Stage 2** | Minikube + 취약 ingress-nginx v1.11.4 | 완료 |
+| Stage 3 | 실제 AdmissionReview 요청 / PoC 재현 | 예정 |
 
 ---
 
@@ -200,17 +208,59 @@ deactivate   # 가상환경 종료
 
 ## 9. 자동 부트스트랩 (스크립트 경로)
 
-| 환경 | 스크립트 |
-|------|---------|
-| Linux / WSL2 | `scripts/bootstrap.sh` |
-| Windows PowerShell | `scripts/bootstrap.ps1` |
-
-각 스크립트는 Python 버전 확인 → venv 생성 → 의존성 설치 → 동작 확인까지 자동으로 수행한다.
+| 환경 | 스크립트 | 단계 |
+|------|---------|------|
+| Linux / WSL2 | `scripts/bootstrap.sh` | Stage 1 |
+| Windows PowerShell | `scripts/bootstrap.ps1` | Stage 1 |
+| Linux / WSL2 | `scripts/bootstrap_stage2.sh` | Stage 2 |
 
 ```bash
-# Linux/WSL2
+# Stage 1 (Linux/WSL2)
 bash scripts/bootstrap.sh
 
-# Windows PowerShell
-.\scripts\bootstrap.ps1
+# Stage 2 (Linux/WSL2 — Docker 필요)
+bash scripts/bootstrap_stage2.sh
+
+# 또는 Makefile로
+make bootstrap          # Stage 1
+make bootstrap-stage2   # Stage 2
+```
+
+---
+
+## 10. Stage 2 — Minikube + 취약 ingress-nginx
+
+### 요구사항
+
+| 항목 | 버전 | 비고 |
+|------|------|------|
+| Docker | 20.10+ | WSL2에서 Docker Desktop 또는 native Docker |
+| kubectl | v1.30.8 | bootstrap_stage2.sh 가 자동 설치 |
+| minikube | v1.34.0 | bootstrap_stage2.sh 가 자동 설치 |
+| helm | v3.16.4 | bootstrap_stage2.sh 가 자동 설치 |
+
+### 클러스터 사양
+
+| 항목 | 값 |
+|------|-----|
+| Minikube 프로파일 | `cve-2025-1974-lab` |
+| Kubernetes | v1.30.8 |
+| Driver | docker |
+| CPU / Memory | 2 core / 4 GiB |
+| ingress-nginx chart | 4.11.4 |
+| **controller 버전** | **v1.11.4 (CVE-2025-1974 취약)** |
+
+### 실행 / 중지
+
+```bash
+make cluster-up      # 기존 클러스터 재시작 (매번 사용)
+make cluster-down    # 중지 (데이터 유지)
+make cluster-status  # 상태 확인
+make webhook-info    # admission webhook 상세 (PoC 준비 시 참고)
+```
+
+### 클러스터 삭제 (초기화)
+
+```bash
+make cluster-delete  # ⚠ 데이터 포함 전체 삭제
 ```
