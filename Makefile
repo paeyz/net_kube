@@ -50,6 +50,12 @@ help:
 	@echo "  make cluster-status     클러스터 + webhook 상태"
 	@echo "  make webhook-info       admission webhook 엔드포인트 상세"
 	@echo ""
+	@echo "── Stage 3 (PoC 재현) ─────────────────────────────────"
+	@echo "  make poc            전체 PoC 실행 (Step 1→2→3)"
+	@echo "  make poc-step1      Step 1: webhook 연결 확인"
+	@echo "  make poc-step2      Step 2: configuration-snippet 차단 확인"
+	@echo "  make poc-step3      Step 3: auth-snippet 우회 + 파일 탈취"
+	@echo ""
 	@echo "  make check          전체 환경 점검"
 	@echo ""
 
@@ -146,3 +152,16 @@ webhook-info:
 	@echo ""
 	@echo "=== Webhook Service ==="
 	@kubectl get svc ingress-nginx-controller-admission -n ingress-nginx
+
+# ── Stage 3 ────────────────────────────────────────────────────────────────────
+poc:
+	bash $(LAB_ROOT)/scripts/stage3_run.sh all
+
+poc-step1:
+	bash $(LAB_ROOT)/scripts/stage3_run.sh 1
+
+poc-step2:
+	bash $(LAB_ROOT)/scripts/stage3_run.sh 2
+
+poc-step3:
+	bash $(LAB_ROOT)/scripts/stage3_run.sh 3
