@@ -1,7 +1,6 @@
 # SETUP — CVE-2025-1974 IngressNightmare Local Lab
 
-> **목적**: [zsxen/cve-2025-1974-lab](https://github.com/zsxen/cve-2025-1974-lab/tree/master/ingressnightmare_project)
-> 프로젝트를 로컬에서 재현 가능하게 실행하기 위한 가이드.
+> **목적**: CVE-2025-1974 (IngressNightmare) 취약점을 로컬 격리 환경에서 단계별로 재현하는 가이드.
 >
 > **안전 원칙**: 개인 로컬/격리 환경 전용. 외부 대상 테스트 없음. 실제 exploit/무기화 코드 없음.
 
@@ -9,9 +8,10 @@
 
 | 단계 | 내용 | 상태 |
 |------|------|------|
-| **Stage 1** | Python mock 시뮬레이션 (Kubernetes 불필요) | 완료 |
-| **Stage 2** | Minikube + 취약 ingress-nginx v1.11.4 | 완료 |
-| Stage 3 | 실제 AdmissionReview 요청 / PoC 재현 | 예정 |
+| **Stage 1** | Python mock 시뮬레이션 (Kubernetes 불필요) | ✅ 완료 |
+| **Stage 2** | Minikube + 취약 ingress-nginx v1.11.4 | ✅ 완료 |
+| **Stage 3** | webhook 비인증 접근 + auth-snippet 우회 PoC | 🔄 진행 중 |
+| Stage 4 | 파일 탈취 체인 완성 | 예정 |
 
 ---
 
@@ -263,4 +263,60 @@ make webhook-info    # admission webhook 상세 (PoC 준비 시 참고)
 
 ```bash
 make cluster-delete  # ⚠ 데이터 포함 전체 삭제
+```
+
+---
+
+## 11. Stage 3 — PoC 실행
+
+### 전제 조건
+
+- Stage 2 클러스터가 Running 상태 (`make cluster-status`)
+- `~/.local/bin` 이 PATH에 포함 (`export PATH=$HOME/.local/bin:$PATH`)
+
+### 취약 상태 활성화
+
+실제 공격 대상 클러스터는 `allow-snippet-annotations=true` 가 기본값이었다.
+이를 재현하기 위해 ConfigMap을 임시로 패치한다.
+
+```bash
+kubectl patch cm ingress-nginx-controller -n ingress-nginx \
+  --type=merge -p '{"data":{"allow-snippet-annotations":"true"}}'
+```
+
+### PoC 실행
+
+```bash
+make poc          # Step 1→2→3 전체 실행
+make poc-step1    # webhook 연결 확인만
+make poc-step2    # configuration-snippet 차단 확인
+make poc-step3    # auth-snippet 우회 + 파일 include 시도
+```
+
+**Step별 의미:**
+
+| Step | 확인 내용 | 예상 결과 |
+|------|-----------|-----------|
+| 1 | webhook이 인증 없이 요청을 처리하는가 | `allowed: true` |
+| 2 | `configuration-snippet`이 차단되는가 | `allowed: false` + 차단 메시지 |
+| 3 | `auth-snippet`이 우회되는가 | nginx가 파일을 실제로 파싱 시도 (에러에 경로 포함) |
+
+### 실험 후 복원
+
+```bash
+kubectl patch cm ingress-nginx-controller -n ingress-nginx \
+  --type=merge -p '{"data":{"allow-snippet-annotations":"false"}}'
+```
+
+### 직접 실행 (port-forward 수동 관리 시)
+
+```bash
+# 터미널 1 — port-forward 유지
+kubectl port-forward svc/ingress-nginx-controller-admission 8443:443 -n ingress-nginx
+
+# 터미널 2 — PoC
+python3 poc/cve_2025_1974_poc.py --target https://127.0.0.1:8443 --step all
+
+# 특정 파일 대상
+python3 poc/cve_2025_1974_poc.py --step 3 --file /etc/resolv.conf
 ```

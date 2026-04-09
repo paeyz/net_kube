@@ -1,90 +1,142 @@
-# CVE-2025-1974 Local Lab
+# CVE-2025-1974 (IngressNightmare) Local Lab
 
-이 저장소는 CVE-2025-1974 관련 구조를 학습하기 위한 로컬 Kubernetes 실습 프로젝트다.
-
-현재 단계의 범위는 환경구축만 포함한다.
-즉, Minikube 기반의 격리된 로컬 클러스터를 만들고, ingress-nginx 및 샘플 애플리케이션을 배포하며, admission 관련 구성을 관찰할 수 있는 상태까지만 준비한다.
-
-이 단계에서 포함하지 않는 것:
-- PoC 실행
-- exploit 코드 작성/수정
-- AdmissionReview 요청 생성/전송
-- 공격 성공 여부 검증
-- 외부 대상 테스트
+CVE-2025-1974 취약점의 동작 원리를 로컬 격리 환경에서 단계별로 재현하는 학습 저장소.
 
 ## Safety
 
-- 로컬 단일 머신에서만 실행한다.
-- 외부에 노출되는 설정을 기본값으로 사용하지 않는다.
-- 다른 Kubernetes 컨텍스트를 사용하지 않는다.
-- 민감정보와 자격증명은 저장소에 포함하지 않는다.
+- 로컬 단일 머신 (Minikube)에서만 실행
+- 외부 노출 없음 — 모든 통신은 `127.0.0.1` 루프백
+- 실제 exploit 코드 / 무기화 / 외부 대상 공격 없음
+- 민감정보·자격증명은 저장소에 포함하지 않음
 
-## Prerequisites
+---
 
-- Docker
-- Minikube
-- kubectl
-- bash
-- make
-- git
+## 취약점 개요
+
+**CVE-2025-1974 (IngressNightmare)**은 ingress-nginx admission webhook에서 발생하는 취약점이다.
+
+- **영향 버전**: ingress-nginx < 1.11.5, < 1.12.1
+- **CVSS**: 9.8 (Critical)
+- **공격 전제**: 클러스터 내 임의 파드에서 admission webhook 서비스에 접근 가능
+
+**공격 체인**:
+1. admission webhook은 인증 없이 AdmissionReview 요청을 처리한다
+2. `auth-snippet` 어노테이션이 `allow-snippet-annotations=false` 검사를 우회한다
+3. 주입된 nginx `include` 지시어가 `nginx -t` 검증 중 실행된다
+4. 컨트롤러 파드의 ServiceAccount 토큰으로 Kubernetes API 접근이 가능하다
+
+---
+
+## 진행 상태
+
+| 단계 | 내용 | 상태 |
+|------|------|------|
+| Stage 1 | Python mock 시뮬레이션 (admission 흐름 학습) | ✅ 완료 |
+| Stage 2 | Minikube + ingress-nginx v1.11.4 클러스터 구축 | ✅ 완료 |
+| Stage 3 | webhook 비인증 접근 + auth-snippet 우회 재현 | 🔄 진행 중 |
+| Stage 4 | 파일 탈취 체인 완성 | 예정 |
+
+### Stage 3 달성 수준
+
+```
+✅ webhook 인증 없이 AdmissionReview 요청 처리됨
+✅ configuration-snippet → allow-snippet-annotations=false 차단 확인
+✅ auth-snippet → 취약 설정(true)에서 차단 없이 수용
+✅ nginx가 inject된 파일을 실제 파싱 시도 (에러에 파일 경로 포함)
+✅ 컨트롤러 SA 토큰 → kube-system secrets list 권한 확인
+⚠️  webhook 응답에서 파일 내용 직접 추출 — 미완성
+```
+
+---
+
+## 환경
+
+| 항목 | 값 |
+|------|-----|
+| OS | Windows + WSL2 (Ubuntu) |
+| Kubernetes | v1.30.8 (Minikube, docker driver) |
+| ingress-nginx | **v1.11.4** (취약 버전) |
+| Python | 3.12 (Stage 1 mock) |
+| Minikube profile | `cve-2025-1974-lab` |
+
+---
 
 ## Quick Start
 
+### Stage 1 — Python mock
+
 ```bash
-cp .env.example .env
-make bootstrap
-make start
-make install-ingress
-make deploy-sample
-make check
+bash scripts/bootstrap.sh
+make run       # collector + admission 서버 기동
+make attack    # 공격 시뮬레이션
+make stop
 ```
 
-## Expected Outcome
-- `cve-2025-1974-lab` Minikube profile 생성
-- ingress-nginx namespace 준비
-- `lab` namespace 준비
-- ingress-nginx 관련 리소스 배포
-- sample app/service/ingress 배포
-- 환경 점검 스크립트 통과
+### Stage 2 — 클러스터 구축 (최초 1회)
+
+```bash
+bash scripts/bootstrap_stage2.sh
+# 이후 재시작
+make cluster-up
+make cluster-status
+```
+
+### Stage 3 — PoC 실행
+
+```bash
+# 취약 상태 활성화
+kubectl patch cm ingress-nginx-controller -n ingress-nginx \
+  --type=merge -p '{"data":{"allow-snippet-annotations":"true"}}'
+
+# PoC 전체 실행
+make poc
+
+# 실험 후 복원
+kubectl patch cm ingress-nginx-controller -n ingress-nginx \
+  --type=merge -p '{"data":{"allow-snippet-annotations":"false"}}'
+```
+
+---
+
+## 저장소 구조
+
+```
+.
+├── Makefile                  # 공통 명령 (stage1/2/3)
+├── SETUP.md                  # 처음부터 끝까지 실행 순서
+├── TROUBLESHOOTING.md        # 자주 깨지는 포인트와 해결
+├── poc/
+│   └── cve_2025_1974_poc.py  # Stage 3 PoC 스크립트
+├── scripts/
+│   ├── bootstrap.sh          # Stage 1 환경 구성 (Linux/WSL2)
+│   ├── bootstrap.ps1         # Stage 1 환경 구성 (Windows)
+│   ├── bootstrap_stage2.sh   # Stage 2 환경 구성 (클러스터)
+│   └── stage3_run.sh         # Stage 3 PoC 실행 헬퍼
+└── docs/
+    ├── goal.md
+    └── commit-convention.md
+```
+
+---
 
 ## Git Workflow
 
-이 프로젝트는 변경 이력을 학습 자료로 활용한다.
+- Conventional Commits 스타일
+- 논리 단위별로 작게 커밋
+- `--amend` / `rebase -i` 금지
+- 민감정보 커밋 금지
 
-원칙:
-
-- 한 번에 큰 변경을 하지 않는다
-- 의미 있는 작은 단위로 나눈다
-- 각 단계는 Conventional Commits 스타일로 기록한다
-
-예시:
-```
-chore: initialize repository scaffold
-build: add minikube startup scripts
-feat: add ingress-nginx install flow
-feat: add sample app manifests
-docs: add safety and architecture notes
-```
 ## Verification
-```
-kubectl config current-context
-minikube profile list
-kubectl get ns
-kubectl get pods -A
-kubectl get validatingwebhookconfigurations
-kubectl get ingress -n lab
+
+```bash
+make check          # 전체 환경 점검
+make cluster-status # 클러스터 + webhook 상태
+make webhook-info   # admission webhook 상세
 ```
 
 ## Cleanup
-```
-make cleanup
-```
-## Next Step Checkpoints
 
-다음 단계로 넘어가기 전에 아래를 만족해야 한다.
-
-- Minikube profile이 고정되어 있다
-- 현재 kubectl context가 예상한 로컬 컨텍스트다
-- ingress-nginx가 정상 기동 중이다
-- sample app/service/ingress가 배포되어 있다
-- cleanup이 정상 동작한다
+```bash
+make cluster-down    # 클러스터 중지 (데이터 유지)
+make cluster-delete  # 클러스터 삭제
+```
