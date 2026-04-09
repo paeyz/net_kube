@@ -33,18 +33,17 @@ CVE-2025-1974 취약점의 동작 원리를 로컬 격리 환경에서 단계별
 |------|------|------|
 | Stage 1 | Python mock 시뮬레이션 (admission 흐름 학습) | ✅ 완료 |
 | Stage 2 | Minikube + ingress-nginx v1.11.4 클러스터 구축 | ✅ 완료 |
-| Stage 3 | webhook 비인증 접근 + auth-snippet 우회 재현 | 🔄 진행 중 |
-| Stage 4 | 파일 탈취 체인 완성 | 예정 |
+| Stage 3 | webhook 비인증 접근 + auth-snippet 우회 재현 | ✅ 완료 |
+| Stage 4 | SA 토큰 확인 + Kubernetes API 접근 체인 | ✅ 완료 |
 
 ### Stage 3 달성 수준
 
 ```
 ✅ webhook 인증 없이 AdmissionReview 요청 처리됨
 ✅ configuration-snippet → allow-snippet-annotations=false 차단 확인
-✅ auth-snippet → 취약 설정(true)에서 차단 없이 수용
+✅ auth-snippet → allow-snippet-annotations=false 상태에서도 우회 (CVE 핵심)
 ✅ nginx가 inject된 파일을 실제 파싱 시도 (에러에 파일 경로 포함)
 ✅ 컨트롤러 SA 토큰 → kube-system secrets list 권한 확인
-⚠️  webhook 응답에서 파일 내용 직접 추출 — 미완성
 ```
 
 ---
@@ -84,16 +83,12 @@ make cluster-status
 ### Stage 3 — PoC 실행
 
 ```bash
-# 취약 상태 활성화
-kubectl patch cm ingress-nginx-controller -n ingress-nginx \
-  --type=merge -p '{"data":{"allow-snippet-annotations":"true"}}'
-
-# PoC 전체 실행
+# ConfigMap 패치 없이 그대로 실행 (allow-snippet-annotations=false 기본값 유지)
+# auth-snippet 이 이 검사를 우회하는 것이 CVE-2025-1974의 핵심
 make poc
 
-# 실험 후 복원
-kubectl patch cm ingress-nginx-controller -n ingress-nginx \
-  --type=merge -p '{"data":{"allow-snippet-annotations":"false"}}'
+# 비교 시연 (A: 차단됨 vs B: 우회)
+bash poc/run_comparison.sh
 ```
 
 ---

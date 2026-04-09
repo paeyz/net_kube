@@ -274,22 +274,15 @@ make cluster-delete  # ⚠ 데이터 포함 전체 삭제
 - Stage 2 클러스터가 Running 상태 (`make cluster-status`)
 - `~/.local/bin` 이 PATH에 포함 (`export PATH=$HOME/.local/bin:$PATH`)
 
-### 취약 상태 활성화
-
-실제 공격 대상 클러스터는 `allow-snippet-annotations=true` 가 기본값이었다.
-이를 재현하기 위해 ConfigMap을 임시로 패치한다.
-
-```bash
-kubectl patch cm ingress-nginx-controller -n ingress-nginx \
-  --type=merge -p '{"data":{"allow-snippet-annotations":"true"}}'
-```
-
 ### PoC 실행
+
+ConfigMap 패치 없이 바로 실행한다.
+`allow-snippet-annotations=false` (기본값) 상태에서 `auth-snippet`이 이 검사를 우회하는 것이 CVE-2025-1974의 핵심이다.
 
 ```bash
 make poc          # Step 1→2→3 전체 실행
 make poc-step1    # webhook 연결 확인만
-make poc-step2    # configuration-snippet 차단 확인
+make poc-step2    # configuration-snippet 차단 확인 (기준선)
 make poc-step3    # auth-snippet 우회 + 파일 include 시도
 ```
 
@@ -298,14 +291,26 @@ make poc-step3    # auth-snippet 우회 + 파일 include 시도
 | Step | 확인 내용 | 예상 결과 |
 |------|-----------|-----------|
 | 1 | webhook이 인증 없이 요청을 처리하는가 | `allowed: true` |
-| 2 | `configuration-snippet`이 차단되는가 | `allowed: false` + 차단 메시지 |
-| 3 | `auth-snippet`이 우회되는가 | nginx가 파일을 실제로 파싱 시도 (에러에 경로 포함) |
+| 2 | `configuration-snippet`이 차단되는가 | `allowed: false` + 차단 메시지 (allow=false 정상 동작) |
+| 3 | `auth-snippet`이 allow=false를 우회하는가 | nginx가 파일에 실제 접근 (에러에 경로 포함) |
 
-### 실험 후 복원
+### 비교 시연 (권장)
 
 ```bash
-kubectl patch cm ingress-nginx-controller -n ingress-nginx \
-  --type=merge -p '{"data":{"allow-snippet-annotations":"false"}}'
+bash poc/run_comparison.sh
+```
+
+A/B 비교로 차단(A)과 우회(B)를 나란히 보여준다.
+포트포워드 설정 및 정리가 자동으로 처리된다.
+
+### Stage 4 — SA 토큰 확인
+
+비교 시연 스크립트가 자동으로 Stage 4를 실행한다.
+수동 확인:
+
+```bash
+POD=$(kubectl get pods -n ingress-nginx -l app.kubernetes.io/component=controller -o name)
+kubectl exec -n ingress-nginx $POD -- cat /var/run/secrets/kubernetes.io/serviceaccount/token
 ```
 
 ### 직접 실행 (port-forward 수동 관리 시)
