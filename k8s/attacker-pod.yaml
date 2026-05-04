@@ -1,0 +1,70 @@
+# CVE-2025-1974 Red Team — 공격자 파드 (클러스터 내부 실행용)
+#
+# 이 파드는 클러스터 내부에서 ingress-nginx admission webhook에 직접 접근하여
+# CVE-2025-1974 공격 체인을 실행한다. (port-forward 불필요)
+#
+# 배포: kubectl apply -f k8s/attacker-pod.yaml
+# 로그: kubectl logs -f attacker-pod
+# 삭제: kubectl delete -f k8s/attacker-pod.yaml
+#
+# 전제: make docker-build 실행 후 minikube image load 완료 상태
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: attacker-sa
+  namespace: default
+---
+# kubectl exec fallback을 위한 최소 권한 RBAC
+# (webhook 에러에서 토큰이 직접 노출되지 않는 경우에 사용)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: attacker-role
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["pods/exec"]
+  verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: attacker-role-binding
+subjects:
+- kind: ServiceAccount
+  name: attacker-sa
+  namespace: default
+roleRef:
+  kind: ClusterRole
+  name: attacker-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: attacker-pod
+  namespace: default
+  labels:
+    app: attacker
+    role: red-team
+spec:
+  serviceAccountName: attacker-sa
+  restartPolicy: Never
+  containers:
+  - name: attacker
+    image: cve-2025-1974-attacker:latest
+    imagePullPolicy: Never        # minikube image load 사용
+    env:
+    - name: PYTHONUNBUFFERED
+      value: "1"
+    # 결과는 파드 로그로 확인 (kubectl logs attacker-pod)
+    # 또는 emptyDir 마운트 후 kubectl cp로 추출
+    volumeMounts:
+    - name: results
+      mountPath: /attack/results
+  volumes:
+  - name: results
+    emptyDir: {}

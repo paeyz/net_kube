@@ -1,0 +1,108 @@
+# CVE-2025-1974 Detection — Falco 커스텀 룰
+#
+# 탐지 시나리오:
+#   D1: admission webhook direct access (파드에서 직접 8443 연결)
+#   D3: nginx가 ServiceAccount token 파일 접근
+#   D4: 컨테이너 내부에서 kubectl/curl로 Kubernetes API 접근
+#
+# 설치:
+#   falco 네임스페이스에 이 파일을 ConfigMap으로 마운트하거나
+#   scripts/setup_falco.sh 실행 시 자동 적용됨.
+#
+# 참고: https://falco.org/docs/rules/
+#        https://github.com/falcosecurity/rules
+
+# ─────────────────────────────────────────────────────────────────────────────
+# D1: Webhook Direct Access
+# 파드에서 ingress-nginx admission webhook 서비스(8443)에 직접 TCP 연결 시도
+# ─────────────────────────────────────────────────────────────────────────────
+- rule: CVE-2025-1974 Webhook Direct Access
+  desc: >
+    클러스터 내 파드가 ingress-nginx admission webhook(8443)에
+    직접 TCP 연결을 시도함. kube-apiserver를 통하지 않는 비정상 접근.
+  condition: >
+    evt.type = connect and
+    fd.sport = 8443 and
+    not k8s.ns.name in (ingress-nginx, kube-system) and
+    container.id != host
+  output: >
+    Webhook direct connect detected
+    (pod=%k8s.pod.name ns=%k8s.ns.name proc=%proc.name
+     dst_ip=%fd.rip dst_port=%fd.rport cmdline=%proc.cmdline)
+  priority: CRITICAL
+  tags: [cve-2025-1974, d1, webhook, network]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# D3: nginx ServiceAccount Token File Access
+# nginx 프로세스가 SA 토큰 파일을 열 때 탐지
+# ─────────────────────────────────────────────────────────────────────────────
+- rule: CVE-2025-1974 Nginx Reads ServiceAccount Token
+  desc: >
+    ingress-nginx controller의 nginx 프로세스가
+    ServiceAccount 토큰 파일을 읽으려 시도함.
+    auth-snippet include 주입의 핵심 증거.
+  condition: >
+    (open_read or open_write) and
+    fd.name = "/var/run/secrets/kubernetes.io/serviceaccount/token" and
+    proc.name in (nginx, nginx-ingress-co) and
+    k8s.ns.name = ingress-nginx
+  output: >
+    nginx read SA token (CVE-2025-1974 D3)
+    (pod=%k8s.pod.name proc=%proc.name file=%fd.name
+     cmdline=%proc.cmdline user=%user.name)
+  priority: CRITICAL
+  tags: [cve-2025-1974, d3, token, lfi]
+
+# D3 보조: sh/cat/curl이 토큰 파일을 직접 읽는 경우 (kubectl exec fallback)
+- rule: CVE-2025-1974 Shell Reads SA Token in ingress-nginx
+  desc: >
+    ingress-nginx 파드에서 shell/cat/curl 등이
+    ServiceAccount 토큰 파일을 접근함. kubectl exec 공격 패턴.
+  condition: >
+    (open_read or open_write) and
+    fd.name = "/var/run/secrets/kubernetes.io/serviceaccount/token" and
+    proc.name in (sh, bash, cat, curl, wget, python3, python) and
+    k8s.ns.name = ingress-nginx
+  output: >
+    Shell/tool reads SA token in ingress-nginx (CVE-2025-1974 D3 variant)
+    (pod=%k8s.pod.name proc=%proc.name file=%fd.name
+     parent=%proc.pname cmdline=%proc.cmdline)
+  priority: CRITICAL
+  tags: [cve-2025-1974, d3, token, kubectl-exec]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# D4: Container Lateral Movement — Kubernetes API Access
+# 컨테이너에서 curl/kubectl이 Kubernetes API 서버에 접근
+# ─────────────────────────────────────────────────────────────────────────────
+- rule: CVE-2025-1974 Container Calls Kubernetes API
+  desc: >
+    컨테이너 내부에서 curl/wget이 Kubernetes API 서버(kubernetes.default.svc)에
+    HTTP 요청을 보냄. SA 토큰을 이용한 Lateral Movement 패턴.
+  condition: >
+    spawned_process and
+    proc.name in (curl, wget) and
+    (proc.args contains "kubernetes.default" or
+     proc.args contains "10.96.0.1") and
+    container.id != host
+  output: >
+    Container calls k8s API (CVE-2025-1974 D4)
+    (pod=%k8s.pod.name ns=%k8s.ns.name proc=%proc.name
+     cmdline=%proc.cmdline)
+  priority: WARNING
+  tags: [cve-2025-1974, d4, lateral-movement, api]
+
+- rule: CVE-2025-1974 kubectl in Container
+  desc: >
+    컨테이너 내부에서 kubectl 명령이 실행됨.
+    탈취한 SA 토큰으로 API 접근하는 공격자 패턴.
+  condition: >
+    spawned_process and
+    proc.name = kubectl and
+    container.id != host and
+    not k8s.ns.name in (kube-system)
+  output: >
+    kubectl executed inside container (CVE-2025-1974 D4)
+    (pod=%k8s.pod.name ns=%k8s.ns.name
+     cmdline=%proc.cmdline user=%user.name)
+  priority: WARNING
+  tags: [cve-2025-1974, d4, lateral-movement, kubectl]

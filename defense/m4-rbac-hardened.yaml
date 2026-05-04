@@ -1,0 +1,102 @@
+# M4 — RBAC Hardening: ingress-nginx ServiceAccount 최소 권한
+#
+# 현재 ingress-nginx SA는 kube-system 포함 전체 Secrets를 list할 수 있어
+# SA 토큰 탈취 후 Lateral Movement 범위가 넓다.
+# 이 패치는 ingress-nginx 네임스페이스 내 필요 리소스만 허용하여
+# blast radius를 최소화한다.
+#
+# 적용:
+#   kubectl apply -f defense/m4-rbac-hardened.yaml
+#   # 기존 ClusterRoleBinding 제거 후 네임스페이스 한정 RoleBinding으로 교체
+#
+# 검증:
+#   TOKEN=$(kubectl exec -n ingress-nginx deploy/ingress-nginx-controller \
+#     -- cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+#   kubectl --token="$TOKEN" get secrets -n kube-system  # → Forbidden
+#   kubectl --token="$TOKEN" get secrets -n ingress-nginx  # → OK
+#
+# 주의: 실제 적용 시 ingress-nginx 동작에 필요한 권한이 제거되지 않도록
+#       충분히 테스트 후 적용할 것.
+---
+# ingress-nginx 네임스페이스 내 최소 권한 Role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ingress-nginx-hardened
+  namespace: ingress-nginx
+  labels:
+    mitigation: m4-rbac
+rules:
+# ingress 리소스 관리 (필수)
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingresses", "ingressclasses"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingresses/status"]
+  verbs: ["update"]
+# 자기 네임스페이스 내 secrets만 (TLS 인증서)
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list", "watch"]
+# configmaps (leader election)
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch", "create", "update"]
+# events
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create", "patch"]
+# services, endpoints (백엔드 라우팅)
+- apiGroups: [""]
+  resources: ["services", "endpoints"]
+  verbs: ["get", "list", "watch"]
+# pods (헬스체크)
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ingress-nginx-hardened
+  namespace: ingress-nginx
+  labels:
+    mitigation: m4-rbac
+subjects:
+- kind: ServiceAccount
+  name: ingress-nginx
+  namespace: ingress-nginx
+roleRef:
+  kind: Role
+  name: ingress-nginx-hardened
+  apiGroup: rbac.authorization.k8s.io
+---
+# ValidatingWebhookConfiguration 읽기 권한 (cluster-wide, read-only)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ingress-nginx-webhook-read
+  labels:
+    mitigation: m4-rbac
+rules:
+- apiGroups: ["admissionregistration.k8s.io"]
+  resources: ["validatingwebhookconfigurations"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingressclasses"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ingress-nginx-webhook-read
+  labels:
+    mitigation: m4-rbac
+subjects:
+- kind: ServiceAccount
+  name: ingress-nginx
+  namespace: ingress-nginx
+roleRef:
+  kind: ClusterRole
+  name: ingress-nginx-webhook-read
+  apiGroup: rbac.authorization.k8s.io

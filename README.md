@@ -35,6 +35,7 @@ CVE-2025-1974 취약점의 동작 원리를 로컬 격리 환경에서 단계별
 | Stage 2 | Minikube + ingress-nginx v1.11.4 클러스터 구축 | ✅ 완료 |
 | Stage 3 | webhook 비인증 접근 + auth-snippet 우회 재현 | ✅ 완료 |
 | Stage 4 | SA 토큰 확인 + Kubernetes API 접근 체인 | ✅ 완료 |
+| Stage 5 | Red Team 공격 체인 자동화 + Docker 인수인계 | ✅ 완료 |
 
 ### Stage 3 달성 수준
 
@@ -91,24 +92,68 @@ make poc
 bash poc/run_comparison.sh
 ```
 
+### Stage 5 — Red Team 공격 체인 (자동화)
+
+```bash
+# 개별 단계 실행 (port-forward 자동 관리)
+make attack-enum      # T1: 파일 열거 (12개 경로)
+make attack-token     # T2: SA 토큰 추출
+make attack-lateral   # T3: Kubernetes API Lateral Movement
+
+# 전체 체인 T1→T4 (리포트 자동 생성)
+make attack-chain
+# 결과: results/attack_result_<timestamp>.json / .md
+```
+
+### Stage 5 — Docker 공격자 파드 (클러스터 내부 실행)
+
+```bash
+# 이미지 빌드 + Minikube에 로드 (외부 레지스트리 불필요)
+make docker-build
+
+# 공격자 파드 배포 (port-forward 없이 서비스 DNS로 직접 접근)
+make attacker-deploy
+
+# 공격 결과 확인
+make attacker-logs
+
+# 정리
+make attacker-delete
+```
+
 ---
 
 ## 저장소 구조
 
 ```
 .
-├── Makefile                  # 공통 명령 (stage1/2/3)
-├── SETUP.md                  # 처음부터 끝까지 실행 순서
-├── TROUBLESHOOTING.md        # 자주 깨지는 포인트와 해결
+├── Makefile                       # 공통 명령 (stage1/2/3/4/5)
+├── Dockerfile                     # Red Team 공격자 파드 이미지
+├── SETUP.md                       # 처음부터 끝까지 실행 순서
+├── TROUBLESHOOTING.md             # 자주 깨지는 포인트와 해결
 ├── poc/
-│   └── cve_2025_1974_poc.py  # Stage 3 PoC 스크립트
+│   ├── cve_2025_1974_poc.py       # Stage 3 PoC 스크립트
+│   ├── comparison.py              # Stage 3/4 A/B 비교 + SA 토큰 확인
+│   ├── run_comparison.sh          # 비교 시연 헬퍼
+│   ├── attack_chain.py            # Stage 5 Red Team 공격 체인 자동화
+│   └── modules/
+│       ├── file_enum.py           # 시나리오 A: 파일 열거
+│       ├── token_extract.py       # 시나리오 B: SA 토큰 추출
+│       ├── lateral_move.py        # 시나리오 C: Lateral Movement
+│       └── reporter.py            # JSON + Markdown 결과 리포트
+├── k8s/
+│   └── attacker-pod.yaml          # 공격자 파드 + SA + RBAC
 ├── scripts/
-│   ├── bootstrap.sh          # Stage 1 환경 구성 (Linux/WSL2)
-│   ├── bootstrap.ps1         # Stage 1 환경 구성 (Windows)
-│   ├── bootstrap_stage2.sh   # Stage 2 환경 구성 (클러스터)
-│   └── stage3_run.sh         # Stage 3 PoC 실행 헬퍼
+│   ├── bootstrap.sh               # Stage 1 환경 구성 (Linux/WSL2)
+│   ├── bootstrap.ps1              # Stage 1 환경 구성 (Windows)
+│   ├── bootstrap_stage2.sh        # Stage 2 환경 구성 (클러스터)
+│   └── stage3_run.sh              # Stage 3 PoC 실행 헬퍼
+├── results/                       # 공격 결과 저장 (.gitignore)
 └── docs/
     ├── goal.md
+    ├── team_plan.md               # Purple Team 5인 역할 분배
+    ├── proposal_red_team.md       # Red Team 공격 실험 계획
+    ├── attack_report.md           # Red Team → Blue/Detection 인수인계 보고서
     └── commit-convention.md
 ```
 

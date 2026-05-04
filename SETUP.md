@@ -1,327 +1,314 @@
-# SETUP — CVE-2025-1974 IngressNightmare Local Lab
+# SETUP — CVE-2025-1974 IngressNightmare Purple Team Lab
 
-> **목적**: CVE-2025-1974 (IngressNightmare) 취약점을 로컬 격리 환경에서 단계별로 재현하는 가이드.
+> **목적**: CVE-2025-1974 (IngressNightmare) 취약점을 로컬 격리 환경에서 재현하고,
+> Red/Blue/Detection 팀이 각자 역할을 실습하는 가이드.
 >
-> **안전 원칙**: 개인 로컬/격리 환경 전용. 외부 대상 테스트 없음. 실제 exploit/무기화 코드 없음.
+> **안전 원칙**: 로컬 Minikube 격리 환경 전용 (`127.0.0.1`). 외부 대상 없음. 무기화 없음.
 
-## 단계 개요
+---
 
-| 단계 | 내용 | 상태 |
+## 전체 진행 상태
+
+| 단계 | 내용 | 담당 | 상태 |
+|------|------|------|------|
+| Stage 1 | Python mock 시뮬레이션 | 전체 | ✅ 완료 |
+| Stage 2 | Minikube + ingress-nginx v1.11.4 클러스터 | 전체 | ✅ 완료 |
+| Stage 3 | webhook 비인증 + auth-snippet 우회 PoC | Red | ✅ 완료 |
+| Stage 4 | SA 토큰 탈취 + Kubernetes API 접근 | Red | ✅ 완료 |
+| **Stage 5** | **공격 체인 자동화 + Docker 인수인계** | **Red** | **✅ 완료** |
+| Stage 6 | 방어 구현 (M1~M4) | Blue | 🔄 진행 예정 |
+| Stage 7 | 탐지 구현 (D1~D4: Falco/Audit/Gatekeeper) | Detection | 🔄 진행 예정 |
+| Stage 8 | Purple Team 통합 시나리오 실행 | 전체 | 예정 |
+
+---
+
+## 요구사항
+
+| 항목 | 버전 | 확인 |
 |------|------|------|
-| **Stage 1** | Python mock 시뮬레이션 (Kubernetes 불필요) | ✅ 완료 |
-| **Stage 2** | Minikube + 취약 ingress-nginx v1.11.4 | ✅ 완료 |
-| **Stage 3** | webhook 비인증 접근 + auth-snippet 우회 PoC | 🔄 진행 중 |
-| Stage 4 | 파일 탈취 체인 완성 | 예정 |
-
----
-
-## 1. 요구사항 체크리스트
-
-| 항목 | 최소 버전 | 확인 명령 |
-|------|-----------|-----------|
+| OS | Windows + WSL2 (Ubuntu) | |
 | Python | 3.11+ | `python3 --version` |
-| pip | 23+ | `pip --version` |
+| Docker Desktop | 최신 | `docker --version` |
+| Minikube | v1.34.0 | `minikube version` |
+| kubectl | v1.30+ | `kubectl version --client` |
+| helm | v3.x | `helm version` |
 | git | 2.x | `git --version` |
-| tcpdump (선택) | any | `tcpdump --version` |
-| Wireshark (선택) | any | GUI 설치 |
-
-**Kubernetes / Docker / Minikube 는 이 프로젝트에서 필요 없음.**
 
 ---
 
-## 2. 환경별 선택 가이드
-
-### 권장 경로
-
-| 환경 | 경로 |
-|------|------|
-| macOS / Ubuntu / Debian | [섹션 3 — 네이티브 Linux/macOS](#3-네이티브-linuxmacos) |
-| **Windows (권장)** | [섹션 4 — WSL2](#4-windows--wsl2) |
-| Windows (WSL2 없는 경우) | [섹션 5 — PowerShell 네이티브](#5-windows-powershell-네이티브) |
-
-> **왜 WSL2를 권장하나?**
-> `pcap_capture.sh`(tcpdump)와 `make` 타겟이 POSIX 쉘 기반이라
-> WSL2에서 그대로 실행된다. PowerShell 네이티브는 스크립트를 별도로 변환해야 한다.
-
----
-
-## 3. 네이티브 Linux/macOS
+## 빠른 시작 (최초 1회)
 
 ```bash
-# 1) 이 저장소 클론 (아직 안 했다면)
-git clone https://github.com/zsxen/cve-2025-1974-lab.git
-cd cve-2025-1974-lab/ingressnightmare_project
-
-# 2) Python 버전 확인
-python3 --version   # 3.11.x 이상이어야 함
-
-# 3) 가상환경 생성 & 활성화
-python3 -m venv .venv
-source .venv/bin/activate
-
-# 4) 의존성 설치 (버전 고정)
-pip install --upgrade pip
-pip install -r requirements.txt
-
-# 5) 설치 확인
-python3 -c "import requests, psutil; print('OK')"
-```
-
----
-
-## 4. Windows + WSL2
-
-### 4-1. WSL2 설치 (최초 1회)
-
-PowerShell (관리자) 에서:
-
-```powershell
-wsl --install -d Ubuntu-22.04
-# 재부팅 후 Ubuntu 사용자명/비밀번호 설정
-```
-
-### 4-2. Ubuntu 안에서 Python 3.11 준비
-
-```bash
-sudo apt update && sudo apt install -y python3.11 python3.11-venv python3-pip git make
-python3.11 --version   # 3.11.x
-```
-
-### 4-3. 프로젝트 클론 & 가상환경
-
-```bash
-# WSL2 홈 디렉터리에서 작업 (Windows 드라이브 /mnt/c/... 보다 빠름)
-cd ~
-git clone https://github.com/zsxen/cve-2025-1974-lab.git
-cd cve-2025-1974-lab/ingressnightmare_project
-
-python3.11 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
-python3 -c "import requests, psutil; print('OK')"
-```
-
-### 4-4. Windows 측 파일 접근 (선택)
-
-Windows 경로 `/mnt/c/net_kube` 에서 작업할 경우:
-
-```bash
-# 성능 저하 없이 접근 가능하나, I/O 집약 작업은 WSL2 홈을 권장
-cd /mnt/c/net_kube
-```
-
----
-
-## 5. Windows PowerShell 네이티브
-
-> make 타겟이 bash 기반이므로, PowerShell에서는 `scripts/bootstrap.ps1`을 사용한다.
-
-```powershell
-# Python 3.11 설치: https://www.python.org/downloads/
-# 설치 후 확인
-python --version   # 3.11.x
-
-# 프로젝트 클론
-git clone https://github.com/zsxen/cve-2025-1974-lab.git
-cd cve-2025-1974-lab\ingressnightmare_project
-
-# 가상환경
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-
-pip install --upgrade pip
-pip install -r requirements.txt
-python -c "import requests, psutil; print('OK')"
-```
-
-> PowerShell에서 `pcap_capture.sh`는 사용 불가. Wireshark를 직접 열어 `lo` 인터페이스를 캡처하거나 WSL2를 사용한다.
-
----
-
-## 6. 실행 순서 (공통)
-
-터미널 두 개를 열어 각각 실행한다.
-
-### 터미널 1 — Collector 서버 시작
-
-```bash
-source .venv/bin/activate
-make run-collector
-# 또는: python3 -m safe_lab.collector_server --port 19090
-```
-
-`Collector listening on 0.0.0.0:19090` 메시지 확인 후 다음 단계 진행.
-
-### 터미널 2 — Admission 서버 시작 (3가지 모드 중 선택)
-
-```bash
-source .venv/bin/activate
-
-# 취약 모드 (기본 실습용)
-make run-vulnerable
-# 패치 모드 (방어 확인용)
-make run-patched
-# API-server-only 모드 (네트워크 정책 실습용)
-make run-apiserver-only
-```
-
-### 터미널 3 (또는 동일 세션) — 트래픽 생성
-
-```bash
-source .venv/bin/activate
-
-make attack    # 공격 시뮬레이션 트래픽
-make benign    # 정상 트래픽
-make experiment  # 결과 수집
-```
-
-결과물은 `safe_lab/runtime/results/` 에 저장됨.
-
----
-
-## 7. 패킷 캡처 (선택)
-
-```bash
-# Linux/WSL2: tcpdump 설치
-sudo apt install -y tcpdump
-
-# 캡처 실행 (백그라운드)
-bash pcap_capture.sh &
-
-# 중지
-kill %1
-```
-
-Wireshark 필터는 `wireshark_filters.txt` 참고.
-
----
-
-## 8. 초기화 (Clean-up)
-
-```bash
-make clean   # 로그/결과 파일 삭제 (.gitkeep 유지)
-deactivate   # 가상환경 종료
-```
-
----
-
-## 9. 자동 부트스트랩 (스크립트 경로)
-
-| 환경 | 스크립트 | 단계 |
-|------|---------|------|
-| Linux / WSL2 | `scripts/bootstrap.sh` | Stage 1 |
-| Windows PowerShell | `scripts/bootstrap.ps1` | Stage 1 |
-| Linux / WSL2 | `scripts/bootstrap_stage2.sh` | Stage 2 |
-
-```bash
-# Stage 1 (Linux/WSL2)
-bash scripts/bootstrap.sh
-
-# Stage 2 (Linux/WSL2 — Docker 필요)
+# 1. 클러스터 생성 (ingress-nginx v1.11.4 포함)
 bash scripts/bootstrap_stage2.sh
 
-# 또는 Makefile로
-make bootstrap          # Stage 1
-make bootstrap-stage2   # Stage 2
+# 2. 클러스터 확인
+make cluster-status
 ```
 
 ---
 
-## 10. Stage 2 — Minikube + 취약 ingress-nginx
+## Red Team — 공격 체인 실행
 
-### 요구사항
-
-| 항목 | 버전 | 비고 |
-|------|------|------|
-| Docker | 20.10+ | WSL2에서 Docker Desktop 또는 native Docker |
-| kubectl | v1.30.8 | bootstrap_stage2.sh 가 자동 설치 |
-| minikube | v1.34.0 | bootstrap_stage2.sh 가 자동 설치 |
-| helm | v3.16.4 | bootstrap_stage2.sh 가 자동 설치 |
-
-### 클러스터 사양
-
-| 항목 | 값 |
-|------|-----|
-| Minikube 프로파일 | `cve-2025-1974-lab` |
-| Kubernetes | v1.30.8 |
-| Driver | docker |
-| CPU / Memory | 2 core / 4 GiB |
-| ingress-nginx chart | 4.11.4 |
-| **controller 버전** | **v1.11.4 (CVE-2025-1974 취약)** |
-
-### 실행 / 중지
+### 로컬 실행 (port-forward 방식)
 
 ```bash
-make cluster-up      # 기존 클러스터 재시작 (매번 사용)
-make cluster-down    # 중지 (데이터 유지)
-make cluster-status  # 상태 확인
-make webhook-info    # admission webhook 상세 (PoC 준비 시 참고)
+# 클러스터 시작
+make cluster-up
+
+# port-forward는 attack-* 타깃이 자동으로 관리함
+
+# 개별 단계
+make attack-enum      # T1: 파일 열거 (12개 경로)
+make attack-token     # T2: SA 토큰 추출 + JWT 파싱
+make attack-lateral   # T3: Kubernetes API Lateral Movement
+
+# 전체 자동화 (T1→T4, 리포트 자동 생성)
+make attack-chain
 ```
 
-### 클러스터 삭제 (초기화)
+### 결과 확인
 
 ```bash
-make cluster-delete  # ⚠ 데이터 포함 전체 삭제
+ls results/attack_result_*.json   # JSON 상세 데이터
+ls results/attack_result_*.md     # Markdown 요약
+cat docs/attack_report.md         # Blue/Detection 팀 인수인계 보고서
+```
+
+### Docker 공격자 파드 (클러스터 내부 실행 — 현실적 시나리오)
+
+```bash
+# 이미지 빌드 + Minikube에 로드 (외부 레지스트리 불필요)
+make docker-build
+
+# 공격자 파드 배포 (port-forward 없이 서비스 DNS 직접 접근)
+make attacker-deploy
+
+# 실행 결과 확인 (공격 체인 로그)
+make attacker-logs
+
+# 정리
+make attacker-delete
 ```
 
 ---
 
-## 11. Stage 3 — PoC 실행
+## Blue Team — 방어 구현
 
-### 전제 조건
-
-- Stage 2 클러스터가 Running 상태 (`make cluster-status`)
-- `~/.local/bin` 이 PATH에 포함 (`export PATH=$HOME/.local/bin:$PATH`)
-
-### PoC 실행
-
-ConfigMap 패치 없이 바로 실행한다.
-`allow-snippet-annotations=false` (기본값) 상태에서 `auth-snippet`이 이 검사를 우회하는 것이 CVE-2025-1974의 핵심이다.
+### M1: Admission Webhook 비활성화
 
 ```bash
-make poc          # Step 1→2→3 전체 실행
-make poc-step1    # webhook 연결 확인만
-make poc-step2    # configuration-snippet 차단 확인 (기준선)
-make poc-step3    # auth-snippet 우회 + 파일 include 시도
+make defense-m1          # webhook 비활성화
+make attack-chain        # → webhook 연결 실패 확인
+make defense-m1-restore  # webhook 복원
 ```
 
-**Step별 의미:**
-
-| Step | 확인 내용 | 예상 결과 |
-|------|-----------|-----------|
-| 1 | webhook이 인증 없이 요청을 처리하는가 | `allowed: true` |
-| 2 | `configuration-snippet`이 차단되는가 | `allowed: false` + 차단 메시지 (allow=false 정상 동작) |
-| 3 | `auth-snippet`이 allow=false를 우회하는가 | nginx가 파일에 실제 접근 (에러에 경로 포함) |
-
-### 비교 시연 (권장)
+### M2: NetworkPolicy (Calico — 별도 프로파일 필요)
 
 ```bash
-bash poc/run_comparison.sh
+# Calico CNI 프로파일로 클러스터 재생성 필요
+minikube start -p cve-2025-1974-netpol \
+  --network-plugin=cni --cni=calico --wait all
+
+# NetworkPolicy 적용
+make defense-m2
+
+# 공격자 파드로 검증 (in-cluster direct POST → 차단 확인)
+make attacker-deploy
+make attacker-logs       # connection refused 확인
+make defense-m2-remove   # 제거
 ```
 
-A/B 비교로 차단(A)과 우회(B)를 나란히 보여준다.
-포트포워드 설정 및 정리가 자동으로 처리된다.
-
-### Stage 4 — SA 토큰 확인
-
-비교 시연 스크립트가 자동으로 Stage 4를 실행한다.
-수동 확인:
+### M3: ValidatingAdmissionPolicy (kubectl apply 경로 차단)
 
 ```bash
-POD=$(kubectl get pods -n ingress-nginx -l app.kubernetes.io/component=controller -o name)
-kubectl exec -n ingress-nginx $POD -- cat /var/run/secrets/kubernetes.io/serviceaccount/token
+make defense-m3
+
+# 검증: kubectl apply로 악성 Ingress 시도
+kubectl apply -f - <<EOF
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: test-vap
+  namespace: default
+  annotations:
+    nginx.ingress.kubernetes.io/auth-snippet: "include /etc/passwd;"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: test.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: svc
+            port:
+              number: 80
+EOF
+# → Error: ValidatingAdmissionPolicy 차단 확인
+
+make defense-m3-remove   # 제거
 ```
 
-### 직접 실행 (port-forward 수동 관리 시)
+### M4: RBAC 최소 권한 (Lateral Movement 범위 축소)
 
 ```bash
-# 터미널 1 — port-forward 유지
-kubectl port-forward svc/ingress-nginx-controller-admission 8443:443 -n ingress-nginx
+make defense-m4
 
-# 터미널 2 — PoC
-python3 poc/cve_2025_1974_poc.py --target https://127.0.0.1:8443 --step all
+# 검증: 탈취된 SA 토큰으로 kube-system Secrets 접근 → Forbidden
+TOKEN=$(kubectl exec -n ingress-nginx \
+  $(kubectl get pods -n ingress-nginx -l app.kubernetes.io/component=controller -o name | head -1) \
+  -- cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+kubectl --token="$TOKEN" get secrets -n kube-system   # → Forbidden (성공)
+kubectl --token="$TOKEN" get secrets -n ingress-nginx  # → OK (정상 동작)
+```
 
-# 특정 파일 대상
-python3 poc/cve_2025_1974_poc.py --step 3 --file /etc/resolv.conf
+### 전체 방어 정책 제거 (원상복구)
+
+```bash
+make defense-restore
+```
+
+---
+
+## Detection Team — 탐지 구현
+
+### 일괄 설치
+
+```bash
+make detect-setup   # Falco + Gatekeeper + Audit Log 한 번에 설치
+```
+
+### Falco (D1/D3/D4)
+
+```bash
+make detect-falco         # Falco DaemonSet 설치
+make detect-falco-rules   # CVE-2025-1974 커스텀 룰 적용
+
+# 공격 실행 + 탐지 확인
+make attack-chain &       # 백그라운드 공격
+make detect-falco-logs    # 실시간 알림 확인
+# → CVE-2025-1974 관련 CRITICAL 알림 확인
+```
+
+**탐지 시나리오**:
+- **D1**: 파드 → webhook 8443 direct connect (`evt.type=connect`)
+- **D3**: nginx 프로세스가 SA 토큰 파일 접근 (`fd.name contains serviceaccount/token`)
+- **D4**: 컨테이너 내부 kubectl/curl → Kubernetes API 접근
+
+### OPA/Gatekeeper (D2)
+
+```bash
+make detect-gatekeeper         # OPA/Gatekeeper 설치
+make detect-gatekeeper-policy  # D2 정책 적용 (warn 모드)
+
+# violation 확인 (make attack-chain 실행 후)
+make detect-gatekeeper-violations
+
+# deny 모드 전환: monitoring/gatekeeper-constraint.yaml에서
+#   enforcementAction: warn → deny 로 변경 후
+kubectl apply -f monitoring/gatekeeper-constraint.yaml
+```
+
+**탐지 시나리오**:
+- **D2**: auth-snippet annotation에 `include`, `load_module`, `/var/run/secrets/` 포함 시 violation/deny
+
+### Kubernetes Audit Log (D2/D4)
+
+```bash
+make detect-audit       # kube-apiserver Audit Log 활성화
+
+# 공격 실행 후 로그 확인
+make attack-chain &
+make detect-audit-tail  # 실시간 audit log 스트리밍
+
+# 확인 항목:
+# D2: requestObject.metadata.annotations["auth-snippet"] 에 위험 패턴
+# D4: user.username=system:serviceaccount:ingress-nginx:... 의 kube-system secrets 접근
+```
+
+### 탐지 도구 전체 상태 확인
+
+```bash
+make detect-status
+```
+
+---
+
+## Purple Team 통합 시나리오 (Phase 3)
+
+5인이 동시에 역할을 수행하는 라이브 훈련 순서:
+
+```
+1. Blue Team   → make cluster-up + make detect-setup
+2. Detection   → make detect-falco-logs (별도 터미널에서 모니터링 시작)
+3. Red Team    → make attack-chain (또는 make attacker-deploy)
+4. Detection   → Falco 알림 수신 + Audit Log 확인 → 타임라인 기록
+5. Blue Team   → make defense-m3 (VAP 적용)
+6. Red Team    → 재시도 → VAP 차단 확인
+7. Blue Team   → make defense-m4 (RBAC 축소)
+8. Red Team    → make attack-lateral → blast radius 축소 확인
+9. 전체        → docs/timeline.md 작성
+```
+
+---
+
+## 파일 구조
+
+```
+.
+├── Dockerfile                     # Red Team 공격자 파드 이미지
+├── Makefile                       # 전체 타깃 (Red/Blue/Detection)
+├── poc/
+│   ├── attack_chain.py            # T1→T4 전체 공격 자동화
+│   ├── cve_2025_1974_poc.py       # Stage 3 PoC (단계별)
+│   ├── comparison.py              # A/B 비교 시연
+│   └── modules/                   # 공격 모듈 (file_enum, token_extract, lateral_move, reporter)
+├── defense/
+│   ├── m1-webhook-disable.sh      # M1: webhook 비활성화
+│   ├── m2-networkpolicy.yaml      # M2: NetworkPolicy (Calico)
+│   ├── m3-vap.yaml                # M3: ValidatingAdmissionPolicy
+│   └── m4-rbac-hardened.yaml      # M4: RBAC 최소 권한
+├── monitoring/
+│   ├── falco-rules.yaml           # Falco 커스텀 룰 (D1/D3/D4)
+│   ├── audit-policy.yaml          # kube-apiserver Audit Log 정책 (D2/D4)
+│   ├── gatekeeper-template.yaml   # OPA/Gatekeeper ConstraintTemplate (D2)
+│   └── gatekeeper-constraint.yaml # OPA/Gatekeeper Constraint (D2)
+├── k8s/
+│   └── attacker-pod.yaml          # 공격자 파드 + SA + RBAC
+├── scripts/
+│   ├── bootstrap_stage2.sh        # 클러스터 최초 구성
+│   ├── setup_falco.sh             # Falco 설치 + 룰 적용
+│   ├── setup_gatekeeper.sh        # OPA/Gatekeeper 설치 + 정책
+│   └── setup_audit_log.sh         # kube-apiserver Audit Log 활성화
+├── results/                       # 공격 결과 (.gitignore)
+└── docs/
+    ├── team_plan.md               # 5인 역할 분배 + 로드맵
+    ├── proposal_red_team.md       # Red Team 공격 실험 계획
+    ├── attack_report.md           # Red Team → Blue/Detection 인수인계 보고서
+    └── goal.md
+```
+
+---
+
+## 자주 쓰는 명령 참조
+
+```bash
+# 클러스터
+make cluster-up / cluster-down / cluster-status
+
+# Red Team
+make attack-chain       # 전체 공격 자동화
+make attacker-deploy    # Docker 공격자 파드
+
+# Blue Team
+make defense-m3         # VAP 적용 (가장 빠른 방어)
+make defense-restore    # 전체 복구
+
+# Detection
+make detect-setup       # 탐지 도구 일괄 설치
+make detect-falco-logs  # Falco 실시간 알림
+make detect-status      # 전체 상태
 ```

@@ -1,0 +1,60 @@
+# CVE-2025-1974 Detection — Kubernetes Audit Log 정책
+#
+# 탐지 시나리오:
+#   D1: Ingress create/patch 요청의 출처 기록 (direct webhook vs kube-apiserver 구분)
+#   D2: auth-snippet annotation이 포함된 Ingress 생성/수정 requestObject 기록
+#   D4: ingress-nginx SA의 비정상 API 접근 기록
+#
+# 적용:
+#   scripts/setup_audit_log.sh 실행
+#   또는 minikube start 시 --extra-config 플래그로 전달
+#
+# 참고: https://kubernetes.io/docs/tasks/debug/debug-cluster/audit/
+
+apiVersion: audit.k8s.io/v1
+kind: Policy
+rules:
+  # ── D2: Ingress create/patch/update — requestObject 전체 기록 ────────────
+  # auth-snippet annotation 포함 여부를 requestObject에서 확인 가능
+  - level: RequestResponse
+    verbs: ["create", "update", "patch", "delete"]
+    resources:
+    - group: "networking.k8s.io"
+      resources: ["ingresses"]
+    omitStages: []
+
+  # ── D4: ingress-nginx SA의 민감 리소스 접근 기록 ─────────────────────────
+  - level: Request
+    users:
+    - "system:serviceaccount:ingress-nginx:ingress-nginx"
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    resources:
+    - group: ""
+      resources: ["secrets", "configmaps", "serviceaccounts"]
+    - group: "rbac.authorization.k8s.io"
+      resources: ["roles", "rolebindings", "clusterroles", "clusterrolebindings"]
+
+  # ── D1: kube-apiserver 경유 Ingress 요청 vs direct POST 구분 ────────────
+  # system:unauthenticated 사용자의 API 접근
+  - level: Request
+    users: ["system:unauthenticated"]
+    omitStages: []
+
+  # ── 일반 민감 리소스 접근 (baseline 대비 이상 탐지) ────────────────────
+  - level: Metadata
+    resources:
+    - group: ""
+      resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+
+  # ── ServiceAccount 토큰 생성/삭제 ────────────────────────────────────────
+  - level: Request
+    resources:
+    - group: ""
+      resources: ["serviceaccounts/token"]
+    verbs: ["create"]
+
+  # ── 나머지: Metadata 레벨로 최소 기록 ────────────────────────────────────
+  - level: Metadata
+    omitStages:
+    - RequestReceived

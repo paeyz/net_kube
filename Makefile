@@ -28,7 +28,15 @@ export PATH
 .PHONY: help bootstrap bootstrap-stage2 \
         run stop attack benign experiment clean check \
         cluster-up cluster-down cluster-delete cluster-status webhook-info \
-        poc poc-step1 poc-step2 poc-step3
+        poc poc-step1 poc-step2 poc-step3 \
+        attack-enum attack-token attack-lateral attack-chain \
+        docker-build attacker-deploy attacker-logs attacker-delete \
+        defense-m1 defense-m1-restore defense-m2 defense-m2-remove \
+        defense-m3 defense-m3-remove defense-m4 defense-restore \
+        detect-setup detect-falco detect-falco-rules detect-falco-logs detect-falco-remove \
+        detect-gatekeeper detect-gatekeeper-policy detect-gatekeeper-violations detect-gatekeeper-remove \
+        detect-audit detect-audit-tail detect-audit-disable \
+        detect-status
 
 help:
 	@echo ""
@@ -58,6 +66,41 @@ help:
 	@echo "  make poc-step3      Step 3: auth-snippet 우회 + 파일 탈취"
 	@echo ""
 	@echo "  make check          전체 환경 점검"
+	@echo ""
+	@echo "── Stage 4 (Red Team 공격 체인) ───────────────────────"
+	@echo "  make attack-enum      시나리오 A: 파일 열거"
+	@echo "  make attack-token     시나리오 B: SA 토큰 추출"
+	@echo "  make attack-lateral   시나리오 C: Lateral Movement"
+	@echo "  make attack-chain     전체 T1→T4 자동화"
+	@echo "  make docker-build     공격자 이미지 빌드 + minikube image load"
+	@echo "  make attacker-deploy  공격자 파드 배포 (클러스터 내부 실행)"
+	@echo "  make attacker-logs    공격자 파드 로그 확인"
+	@echo "  make attacker-delete  공격자 파드 정리"
+	@echo ""
+	@echo "── Blue Team (방어 구현) ───────────────────────────────"
+	@echo "  make defense-m1           M1: admission webhook 비활성화"
+	@echo "  make defense-m1-restore   M1: webhook 복원"
+	@echo "  make defense-m2           M2: NetworkPolicy 적용"
+	@echo "  make defense-m2-remove    M2: NetworkPolicy 제거"
+	@echo "  make defense-m3           M3: ValidatingAdmissionPolicy 적용"
+	@echo "  make defense-m3-remove    M3: VAP 제거"
+	@echo "  make defense-m4           M4: RBAC 최소 권한 적용"
+	@echo "  make defense-restore      전체 방어 정책 제거 (원상복구)"
+	@echo ""
+	@echo "── Detection Team (탐지 구현) ──────────────────────────"
+	@echo "  make detect-setup             Falco + Gatekeeper + Audit Log 일괄 설치"
+	@echo "  make detect-falco             Falco DaemonSet 설치"
+	@echo "  make detect-falco-rules       커스텀 룰 적용 (D1/D3/D4)"
+	@echo "  make detect-falco-logs        Falco 실시간 알림 확인"
+	@echo "  make detect-falco-remove      Falco 제거"
+	@echo "  make detect-gatekeeper        OPA/Gatekeeper 설치"
+	@echo "  make detect-gatekeeper-policy D2 정책 적용 (warn 모드)"
+	@echo "  make detect-gatekeeper-violations  violation 확인"
+	@echo "  make detect-gatekeeper-remove OPA/Gatekeeper 제거"
+	@echo "  make detect-audit             kube-apiserver Audit Log 활성화"
+	@echo "  make detect-audit-tail        Audit Log 실시간 확인"
+	@echo "  make detect-audit-disable     Audit Log 비활성화"
+	@echo "  make detect-status            탐지 도구 전체 상태 확인"
 	@echo ""
 
 # ── Stage 1 ────────────────────────────────────────────────────────────────────
@@ -166,3 +209,137 @@ poc-step2:
 
 poc-step3:
 	bash $(LAB_ROOT)/scripts/stage3_run.sh 3
+
+# ── Stage 4 (Red Team 공격 체인) ────────────────────────────────────────────────
+ATTACK_TARGET  ?= https://127.0.0.1:8443
+ATTACK_OUT     ?= $(LAB_ROOT)/results
+ATTACKER_IMAGE ?= cve-2025-1974-attacker:latest
+PF_PID_FILE    := /tmp/poc_portforward.pid
+
+# port-forward를 열고 attack_chain.py를 실행하는 내부 헬퍼
+# ATTACK_STEP 변수로 단계 제어 (enum | token | lateral | all)
+_attack-run:
+	@if ! ss -tlnp 2>/dev/null | grep -q ':8443'; then \
+	  echo "[INFO] port-forward 시작 (8443)..."; \
+	  kubectl port-forward svc/ingress-nginx-controller-admission \
+	    8443:443 -n ingress-nginx >/tmp/poc_portforward.log 2>&1 & \
+	  echo $$! > $(PF_PID_FILE); \
+	  sleep 2; \
+	fi
+	$(PYTHON) $(LAB_ROOT)/poc/attack_chain.py \
+	  --target $(ATTACK_TARGET) \
+	  --out $(ATTACK_OUT) \
+	  --step $(ATTACK_STEP)
+	@if [ -f $(PF_PID_FILE) ]; then \
+	  kill $$(cat $(PF_PID_FILE)) 2>/dev/null || true; \
+	  rm -f $(PF_PID_FILE); \
+	fi
+
+attack-enum:
+	$(MAKE) _attack-run ATTACK_STEP=enum
+
+attack-token:
+	$(MAKE) _attack-run ATTACK_STEP=token
+
+attack-lateral:
+	$(MAKE) _attack-run ATTACK_STEP=lateral
+
+attack-chain:
+	$(MAKE) _attack-run ATTACK_STEP=all
+
+docker-build:
+	docker build -t $(ATTACKER_IMAGE) $(LAB_ROOT)
+	minikube image load $(ATTACKER_IMAGE) -p $(MINIKUBE_PROFILE)
+
+attacker-deploy:
+	kubectl apply -f $(LAB_ROOT)/k8s/attacker-pod.yaml
+
+attacker-logs:
+	kubectl logs -f attacker-pod -n default
+
+attacker-delete:
+	kubectl delete -f $(LAB_ROOT)/k8s/attacker-pod.yaml --ignore-not-found
+
+# ── Blue Team (방어 구현) ────────────────────────────────────────────────────
+defense-m1:
+	bash $(LAB_ROOT)/defense/m1-webhook-disable.sh apply
+
+defense-m1-restore:
+	bash $(LAB_ROOT)/defense/m1-webhook-disable.sh restore
+
+defense-m2:
+	kubectl apply -f $(LAB_ROOT)/defense/m2-networkpolicy.yaml
+
+defense-m2-remove:
+	kubectl delete -f $(LAB_ROOT)/defense/m2-networkpolicy.yaml --ignore-not-found
+
+defense-m3:
+	kubectl apply -f $(LAB_ROOT)/defense/m3-vap.yaml
+
+defense-m3-remove:
+	kubectl delete -f $(LAB_ROOT)/defense/m3-vap.yaml --ignore-not-found
+
+defense-m4:
+	kubectl apply -f $(LAB_ROOT)/defense/m4-rbac-hardened.yaml
+
+defense-restore:
+	@echo "[restore] 방어 정책 전체 제거..."
+	kubectl delete -f $(LAB_ROOT)/defense/m3-vap.yaml --ignore-not-found
+	kubectl delete -f $(LAB_ROOT)/defense/m2-networkpolicy.yaml --ignore-not-found
+	kubectl delete -f $(LAB_ROOT)/defense/m4-rbac-hardened.yaml --ignore-not-found
+	@echo "[restore] 완료 — make cluster-status 로 상태 확인"
+
+# ── Detection Team (탐지 구현) ───────────────────────────────────────────────
+detect-setup:
+	@echo "[detect] Falco + Gatekeeper + Audit Log 일괄 설치..."
+	bash $(LAB_ROOT)/scripts/setup_falco.sh install
+	bash $(LAB_ROOT)/scripts/setup_gatekeeper.sh install
+	bash $(LAB_ROOT)/scripts/setup_audit_log.sh enable
+	@echo "[detect] 설치 완료 — make detect-status 로 확인"
+
+detect-falco:
+	bash $(LAB_ROOT)/scripts/setup_falco.sh install
+
+detect-falco-rules:
+	bash $(LAB_ROOT)/scripts/setup_falco.sh rules
+
+detect-falco-logs:
+	bash $(LAB_ROOT)/scripts/setup_falco.sh logs
+
+detect-falco-remove:
+	bash $(LAB_ROOT)/scripts/setup_falco.sh uninstall
+
+detect-gatekeeper:
+	bash $(LAB_ROOT)/scripts/setup_gatekeeper.sh install
+
+detect-gatekeeper-policy:
+	bash $(LAB_ROOT)/scripts/setup_gatekeeper.sh policy
+
+detect-gatekeeper-violations:
+	bash $(LAB_ROOT)/scripts/setup_gatekeeper.sh violations
+
+detect-gatekeeper-remove:
+	bash $(LAB_ROOT)/scripts/setup_gatekeeper.sh uninstall
+
+detect-audit:
+	bash $(LAB_ROOT)/scripts/setup_audit_log.sh enable
+
+detect-audit-tail:
+	bash $(LAB_ROOT)/scripts/setup_audit_log.sh tail
+
+detect-audit-disable:
+	bash $(LAB_ROOT)/scripts/setup_audit_log.sh disable
+
+detect-status:
+	@echo "=== Falco ==="
+	@kubectl get pods -n falco -o wide 2>/dev/null || echo "  (미설치)"
+	@echo ""
+	@echo "=== OPA/Gatekeeper ==="
+	@kubectl get pods -n gatekeeper-system -o wide 2>/dev/null || echo "  (미설치)"
+	@echo ""
+	@echo "=== Gatekeeper Violations ==="
+	@kubectl get blocknginxdangerousannotations -A 2>/dev/null || echo "  (Constraint 없음)"
+	@echo ""
+	@echo "=== Defense Policies ==="
+	@kubectl get networkpolicy -n ingress-nginx 2>/dev/null || echo "  (NetworkPolicy 없음)"
+	@kubectl get validatingadmissionpolicy 2>/dev/null || echo "  (VAP 없음)"

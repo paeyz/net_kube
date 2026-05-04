@@ -1,0 +1,70 @@
+# CVE-2025-1974 Detection/Defense — OPA/Gatekeeper ConstraintTemplate
+#
+# D2: auth-snippet annotation에 위험 nginx 지시어 포함 시 차단/violation 생성
+#
+# 설치 순서:
+#   1. kubectl apply -f monitoring/gatekeeper-template.yaml
+#   2. kubectl apply -f monitoring/gatekeeper-constraint.yaml
+#
+# dry-run 모드(warn)로 먼저 동작 → violation 확인 후 deny로 전환
+#
+# 참고:
+#   https://open-policy-agent.github.io/gatekeeper/website/docs/constrainttemplate
+#   https://github.com/open-policy-agent/gatekeeper-library
+
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: blocknginxdangerousannotations
+  labels:
+    detection: d2
+    cve: cve-2025-1974
+spec:
+  crd:
+    spec:
+      names:
+        kind: BlockNginxDangerousAnnotations
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            blockedPatterns:
+              type: array
+              items:
+                type: string
+  targets:
+  - target: admission.k8s.gatekeeper.sh
+    rego: |
+      package blocknginxdangerousannotations
+
+      import future.keywords.contains
+      import future.keywords.if
+
+      # 검사할 annotation 키 목록
+      checked_annotations := [
+        "nginx.ingress.kubernetes.io/auth-snippet",
+        "nginx.ingress.kubernetes.io/server-snippet",
+        "nginx.ingress.kubernetes.io/configuration-snippet",
+      ]
+
+      # 기본 위험 패턴
+      default_patterns := [
+        "include ",
+        "load_module",
+        "/var/run/secrets/",
+        "/proc/self/",
+        "/etc/passwd",
+        "/etc/shadow",
+        ".so",
+      ]
+
+      violation[{"msg": msg}] if {
+        annotation := checked_annotations[_]
+        value := input.review.object.metadata.annotations[annotation]
+        pattern := default_patterns[_]
+        contains(value, pattern)
+        msg := sprintf(
+          "annotation '%v' contains dangerous nginx directive '%v'",
+          [annotation, pattern]
+        )
+      }

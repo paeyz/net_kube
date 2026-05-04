@@ -1,0 +1,47 @@
+# M2 — NetworkPolicy: admission webhook(8443) 접근을 kube-apiserver로만 제한
+#
+# 전제: Calico CNI가 활성화된 프로파일 사용
+#   minikube start -p cve-2025-1974-netpol \
+#     --network-plugin=cni \
+#     --cni=calico \
+#     --wait all
+#
+# 적용: kubectl apply -f defense/m2-networkpolicy.yaml
+# 검증: make attacker-deploy → attacker-logs → connection refused 확인
+#
+# 학습 포인트: port-forward는 kube-apiserver를 통과하므로 우회 가능.
+#             in-cluster attacker Pod의 direct POST는 차단됨.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ingress-nginx-webhook-apiserver-only
+  namespace: ingress-nginx
+  labels:
+    mitigation: m2-networkpolicy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: controller
+  policyTypes:
+  - Ingress
+  ingress:
+  # webhook(8443): kube-apiserver에서만 허용
+  - ports:
+    - port: 8443
+      protocol: TCP
+    from:
+    # Minikube의 control-plane node CIDR (실제 IP는 환경에 따라 다름)
+    # kubectl get node -o wide 로 확인 후 수정
+    - ipBlock:
+        cidr: 192.168.49.0/24   # minikube docker driver 기본 CIDR
+  # HTTP(80) / HTTPS(443): 모든 파드에서 허용 (정상 트래픽)
+  - ports:
+    - port: 80
+      protocol: TCP
+    - port: 443
+      protocol: TCP
+  # 헬스체크(10254): 모든 파드에서 허용
+  - ports:
+    - port: 10254
+      protocol: TCP

@@ -1,0 +1,35 @@
+# CVE-2025-1974 D2 — OPA/Gatekeeper Constraint
+#
+# ConstraintTemplate 적용 후 이 Constraint를 배포한다.
+#
+# enforcementAction:
+#   "warn"  — violation 기록만 (dry-run 모드, 탐지 팀 초기 단계)
+#   "deny"  — 요청 차단 (방어 팀 적용 단계)
+#
+# 현재: "warn" 으로 설정 → detection 팀이 violation 확인 후 "deny"로 전환
+#
+# violation 확인:
+#   kubectl get blocknginxdangerousannotations -A
+#   kubectl describe blocknginxdangerousannotations block-dangerous-nginx-annotations
+
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: BlockNginxDangerousAnnotations
+metadata:
+  name: block-dangerous-nginx-annotations
+  labels:
+    detection: d2
+    cve: cve-2025-1974
+spec:
+  enforcementAction: warn    # "deny"로 변경하면 요청 차단
+  match:
+    kinds:
+    - apiGroups: ["networking.k8s.io"]
+      kinds: ["Ingress"]
+    namespaces: []           # 빈 배열 = 모든 네임스페이스
+  parameters:
+    blockedPatterns:
+    - "include "
+    - "load_module"
+    - "/var/run/secrets/"
+    - "/proc/self/"
+    - ".so"

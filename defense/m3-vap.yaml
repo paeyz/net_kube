@@ -1,0 +1,70 @@
+# M3 — ValidatingAdmissionPolicy: auth-snippet annotation 차단
+#
+# Kubernetes 1.28+ native policy (CEL 기반).
+# kube-apiserver 경로에서 동작 → direct webhook POST는 우회 가능.
+# API-Server Driver(kubectl apply) 경로 차단에 효과적.
+#
+# 적용: kubectl apply -f defense/m3-vap.yaml
+# 검증: kubectl apply -f - <<EOF
+#   apiVersion: networking.k8s.io/v1
+#   kind: Ingress
+#   metadata:
+#     name: test-vap
+#     annotations:
+#       nginx.ingress.kubernetes.io/auth-snippet: "include /etc/passwd;"
+#   spec: { ... }
+# EOF
+# → Error: admission webhook denied (VAP)
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: block-dangerous-nginx-annotations
+  labels:
+    mitigation: m3-vap
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups:   ["networking.k8s.io"]
+      apiVersions: ["v1"]
+      operations:  ["CREATE", "UPDATE"]
+      resources:   ["ingresses"]
+  validations:
+  # auth-snippet에 위험 지시어(include, load_module) 포함 차단
+  - expression: >
+      !has(object.metadata.annotations) ||
+      !(
+        "nginx.ingress.kubernetes.io/auth-snippet" in object.metadata.annotations &&
+        (
+          object.metadata.annotations["nginx.ingress.kubernetes.io/auth-snippet"].contains("include ") ||
+          object.metadata.annotations["nginx.ingress.kubernetes.io/auth-snippet"].contains("load_module") ||
+          object.metadata.annotations["nginx.ingress.kubernetes.io/auth-snippet"].contains("/var/run/secrets") ||
+          object.metadata.annotations["nginx.ingress.kubernetes.io/auth-snippet"].contains(".so")
+        )
+      )
+    message: "auth-snippet annotation에 위험한 nginx 지시어(include, load_module)가 포함되어 있습니다."
+  # server-snippet도 동일하게 차단
+  - expression: >
+      !has(object.metadata.annotations) ||
+      !(
+        "nginx.ingress.kubernetes.io/server-snippet" in object.metadata.annotations &&
+        (
+          object.metadata.annotations["nginx.ingress.kubernetes.io/server-snippet"].contains("include ") ||
+          object.metadata.annotations["nginx.ingress.kubernetes.io/server-snippet"].contains("load_module") ||
+          object.metadata.annotations["nginx.ingress.kubernetes.io/server-snippet"].contains(".so")
+        )
+      )
+    message: "server-snippet annotation에 위험한 nginx 지시어가 포함되어 있습니다."
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: block-dangerous-nginx-annotations-binding
+  labels:
+    mitigation: m3-vap
+spec:
+  policyName: block-dangerous-nginx-annotations
+  validationActions: [Deny]
+  matchResources:
+    namespaceSelector: {}   # 모든 네임스페이스에 적용
