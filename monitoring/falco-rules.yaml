@@ -16,19 +16,35 @@
 # D1: Webhook Direct Access
 # 파드에서 ingress-nginx admission webhook 서비스(8443)에 직접 TCP 연결 시도
 # ─────────────────────────────────────────────────────────────────────────────
+- list: cve_2025_1974_webhook_ips
+  items: [10.100.193.38, 10.244.0.33]
+
+- list: cve_2025_1974_webhook_ports
+  items: [443, 8443]
+
 - rule: CVE-2025-1974 Webhook Direct Access
   desc: >
     클러스터 내 파드가 ingress-nginx admission webhook(8443)에
     직접 TCP 연결을 시도함. kube-apiserver를 통하지 않는 비정상 접근.
   condition: >
-    evt.type = connect and
-    fd.sport = 8443 and
-    not k8s.ns.name in (ingress-nginx, kube-system) and
-    container.id != host
+    evt.type=connect and
+    (fd.typechar=4 or fd.typechar=6) and
+    container and
+    k8s.ns.name = default and
+    (
+      (fd.sip in (cve_2025_1974_webhook_ips) and
+       fd.sport in (cve_2025_1974_webhook_ports)) or
+      (fd.rip in (cve_2025_1974_webhook_ips) and
+       fd.rport in (cve_2025_1974_webhook_ports)) or
+      (proc.cmdline contains "ingress-nginx-controller-admission" and
+       (fd.sport in (cve_2025_1974_webhook_ports) or
+        fd.rport in (cve_2025_1974_webhook_ports)))
+    )
   output: >
     Webhook direct connect detected
     (pod=%k8s.pod.name ns=%k8s.ns.name proc=%proc.name
-     dst_ip=%fd.rip dst_port=%fd.rport cmdline=%proc.cmdline)
+     connection=%fd.name sport=%fd.sport rport=%fd.rport
+     sip=%fd.sip rip=%fd.rip cmdline=%proc.cmdline)
   priority: CRITICAL
   tags: [cve-2025-1974, d1, webhook, network]
 

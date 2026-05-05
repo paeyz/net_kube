@@ -11,6 +11,7 @@ set -euo pipefail
 FALCO_NS="falco"
 RULES_FILE="$(dirname "$0")/../monitoring/falco-rules.yaml"
 RULES_CM_NAME="falco-cve-2025-1974-rules"
+HELM_RULES_KEY="customRules.falco_rules\\.local\\.yaml"
 
 _check_helm() {
   if ! command -v helm &>/dev/null; then
@@ -36,6 +37,7 @@ cmd_install() {
     --set falcosidekick.webui.enabled=true \
     --set "falco.json_output=true" \
     --set "falco.log_level=info" \
+    --set-file "$HELM_RULES_KEY=$RULES_FILE" \
     --wait --timeout 5m
 
   echo "[Falco] 설치 완료"
@@ -46,6 +48,7 @@ cmd_install() {
 }
 
 cmd_rules() {
+  _check_helm
   echo "[Falco] CVE-2025-1974 커스텀 룰 적용..."
   if [ ! -f "$RULES_FILE" ]; then
     echo "[ERROR] $RULES_FILE 이 없습니다"
@@ -57,13 +60,25 @@ cmd_rules() {
     -n "$FALCO_NS" \
     --dry-run=client -o yaml | kubectl apply -f -
 
-  # Falco DaemonSet에 ConfigMap 마운트 (이미 설정된 경우 스킵)
-  echo "[Falco] Falco 파드 재시작으로 룰 반영..."
-  kubectl rollout restart daemonset/falco -n "$FALCO_NS" 2>/dev/null || true
+  if ! helm status falco -n "$FALCO_NS" >/dev/null 2>&1; then
+    echo "[Falco] Falco Helm release가 없어 설치를 먼저 진행합니다..."
+    cmd_install
+    return
+  fi
+
+  # Falco chart의 customRules는 falco-rules ConfigMap을 만들고
+  # /etc/falco/rules.d 로 마운트한다. 단순 ConfigMap 생성만으로는 Falco가 읽지 않는다.
+  echo "[Falco] Helm customRules로 Falco DaemonSet에 룰 마운트..."
+  helm upgrade falco falcosecurity/falco \
+    --namespace "$FALCO_NS" \
+    --reuse-values \
+    --set-file "$HELM_RULES_KEY=$RULES_FILE" \
+    --wait --timeout 5m
+
   kubectl rollout status daemonset/falco -n "$FALCO_NS" --timeout=120s 2>/dev/null || true
 
   echo "[Falco] 룰 적용 완료"
-  echo "  확인: make detect-logs"
+  echo "  확인: make detect-falco-logs"
 }
 
 cmd_status() {
@@ -72,6 +87,9 @@ cmd_status() {
   echo ""
   echo "=== 커스텀 룰 ConfigMap ==="
   kubectl get configmap "$RULES_CM_NAME" -n "$FALCO_NS" 2>/dev/null || echo "(룰 미적용)"
+  echo ""
+  echo "=== Helm customRules ConfigMap ==="
+  kubectl get configmap falco-rules -n "$FALCO_NS" 2>/dev/null || echo "(Helm customRules 미적용)"
 }
 
 cmd_logs() {
