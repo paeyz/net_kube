@@ -2,11 +2,36 @@
 #
 # ConstraintTemplate 적용 후 이 Constraint를 배포한다.
 #
+# ⚠️  탐지 범위:
+#   kubectl apply 경로만 탐지됨 (kube-apiserver 경유 요청).
+#   make attack-chain의 직접 webhook POST는 탐지 불가 → Falco D1/D3 사용.
+#
+# D2 탐지 트리거 방법:
+#   kubectl apply -f - <<EOF
+#   apiVersion: networking.k8s.io/v1
+#   kind: Ingress
+#   metadata:
+#     name: test-d2
+#     namespace: default
+#     annotations:
+#       nginx.ingress.kubernetes.io/auth-snippet: "include /etc/passwd;"
+#   spec:
+#     ingressClassName: nginx
+#     rules:
+#     - host: test.local
+#       http:
+#         paths:
+#         - path: /
+#           pathType: Prefix
+#           backend:
+#             service: {name: svc, port: {number: 80}}
+#   EOF
+#   # → warn 모드: 허용되지만 violation 기록
+#   # → deny 모드: 요청 차단
+#
 # enforcementAction:
 #   "warn"  — violation 기록만 (dry-run 모드, 탐지 팀 초기 단계)
 #   "deny"  — 요청 차단 (방어 팀 적용 단계)
-#
-# 현재: "warn" 으로 설정 → detection 팀이 violation 확인 후 "deny"로 전환
 #
 # violation 확인:
 #   kubectl get blocknginxdangerousannotations -A

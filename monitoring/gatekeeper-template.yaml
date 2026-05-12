@@ -2,6 +2,16 @@
 #
 # D2: auth-snippet annotation에 위험 nginx 지시어 포함 시 차단/violation 생성
 #
+# ⚠️  탐지 범위 주의:
+#   Gatekeeper는 kube-apiserver를 통한 요청(kubectl apply 등)만 가로챈다.
+#   CVE-2025-1974 핵심 공격(webhook 직접 POST)은 kube-apiserver를 우회하므로
+#   이 정책으로 탐지되지 않는다.
+#
+#   탐지 가능한 경우:
+#     - kubectl apply -f malicious-ingress.yaml  → violation/deny
+#   탐지 불가:
+#     - make attack-chain (직접 webhook POST)    → Falco D1/D3 사용
+#
 # 설치 순서:
 #   1. kubectl apply -f monitoring/gatekeeper-template.yaml
 #   2. kubectl apply -f monitoring/gatekeeper-constraint.yaml
@@ -58,10 +68,16 @@ spec:
         ".so",
       ]
 
+      # constraint parameters로 전달된 패턴과 기본 패턴을 합쳐서 검사
+      effective_patterns := p if {
+        count(input.parameters.blockedPatterns) > 0
+        p := input.parameters.blockedPatterns
+      } else := default_patterns
+
       violation[{"msg": msg}] if {
         annotation := checked_annotations[_]
         value := input.review.object.metadata.annotations[annotation]
-        pattern := default_patterns[_]
+        pattern := effective_patterns[_]
         contains(value, pattern)
         msg := sprintf(
           "annotation '%v' contains dangerous nginx directive '%v'",

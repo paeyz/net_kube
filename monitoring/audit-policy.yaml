@@ -1,9 +1,17 @@
 # CVE-2025-1974 Detection — Kubernetes Audit Log 정책
 #
-# 탐지 시나리오:
-#   D1: Ingress create/patch 요청의 출처 기록 (direct webhook vs kube-apiserver 구분)
-#   D2: auth-snippet annotation이 포함된 Ingress 생성/수정 requestObject 기록
-#   D4: ingress-nginx SA의 비정상 API 접근 기록
+# ⚠️  탐지 범위 주의:
+#   Audit Log는 kube-apiserver를 경유한 요청만 기록한다.
+#   make attack-chain / make attack-enum 의 직접 webhook POST는
+#   kube-apiserver를 우회하므로 D1/D2 관련 로그가 남지 않는다.
+#
+# 탐지 시나리오별 실제 적용 범위:
+#   D2 (kubectl apply 경로): kubectl apply로 악성 Ingress 제출 시 requestObject 기록 ✓
+#                             직접 webhook POST(make attack-chain) 시    → 미탐지 ✗
+#   D4 (Lateral Movement):   탈취 토큰으로 kubectl --token get secrets 시 기록 ✓
+#                             (T3는 kube-apiserver 경유이므로 정상 탐지됨)
+#   D1 (unauthenticated):    kubectl apply 경로의 비인증 요청 기록 ✓
+#                             직접 webhook POST → 미탐지 ✗ → Falco D1 사용
 #
 # 적용:
 #   scripts/setup_audit_log.sh 실행
@@ -34,8 +42,8 @@ rules:
     - group: "rbac.authorization.k8s.io"
       resources: ["roles", "rolebindings", "clusterroles", "clusterrolebindings"]
 
-  # ── D1: kube-apiserver 경유 Ingress 요청 vs direct POST 구분 ────────────
-  # system:unauthenticated 사용자의 API 접근
+  # ── D1: system:unauthenticated의 API 접근 기록 ──────────────────────────
+  # kubectl apply 경로에서 인증 없는 요청 기록 (direct webhook POST는 미탐지)
   - level: Request
     users: ["system:unauthenticated"]
     omitStages: []
