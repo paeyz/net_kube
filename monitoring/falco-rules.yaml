@@ -17,7 +17,7 @@
 # 파드에서 ingress-nginx admission webhook 서비스(8443)에 직접 TCP 연결 시도
 # ─────────────────────────────────────────────────────────────────────────────
 - list: cve_2025_1974_webhook_ips
-  items: [10.100.193.38, 10.244.0.33]
+  items: [10.104.108.202, 10.244.0.5]
 
 - list: cve_2025_1974_webhook_ports
   items: [443, 8443]
@@ -90,20 +90,43 @@
 # D4: Container Lateral Movement — Kubernetes API Access
 # 컨테이너에서 curl/kubectl이 Kubernetes API 서버에 접근
 # ─────────────────────────────────────────────────────────────────────────────
+- list: cve_2025_1974_k8s_api_ips
+  items: [10.96.0.1]
+
+- list: cve_2025_1974_k8s_api_ports
+  items: [443]
+
+- macro: user_known_contact_k8s_api_server_activities
+  append: true
+  condition: >
+    or (k8s.ns.name = default and
+     proc.name in (kubectl, curl, wget, python, python3) and
+     (fd.sip.name = "kubernetes.default.svc.cluster.local" or
+      (fd.sip in (cve_2025_1974_k8s_api_ips) and
+       fd.sport in (cve_2025_1974_k8s_api_ports))))
+
 - rule: CVE-2025-1974 Container Calls Kubernetes API
   desc: >
-    컨테이너 내부에서 curl/wget이 Kubernetes API 서버(kubernetes.default.svc)에
-    HTTP 요청을 보냄. SA 토큰을 이용한 Lateral Movement 패턴.
+    컨테이너 내부 프로세스가 Kubernetes API 서버(kubernetes.default.svc:443 또는 10.96.0.1:443)에
+    직접 연결함. SA 토큰을 이용한 권한 확인 또는 lateral movement 패턴.
   condition: >
-    spawned_process and
-    proc.name in (curl, wget) and
-    (proc.args contains "kubernetes.default" or
-     proc.args contains "10.96.0.1") and
-    container.id != host
+    evt.type=connect and
+    (fd.typechar=4 or fd.typechar=6) and
+    container and
+    not k8s.ns.name in (kube-system, falco) and
+    (
+      fd.sip.name = "kubernetes.default.svc.cluster.local" or
+      (fd.sip in (cve_2025_1974_k8s_api_ips) and
+       fd.sport in (cve_2025_1974_k8s_api_ports)) or
+      (fd.rip in (cve_2025_1974_k8s_api_ips) and
+       fd.rport in (cve_2025_1974_k8s_api_ports))
+    )
   output: >
     Container calls k8s API (CVE-2025-1974 D4)
-    (pod=%k8s.pod.name ns=%k8s.ns.name proc=%proc.name
-     cmdline=%proc.cmdline)
+    (rule=CVE-2025-1974 Container Calls Kubernetes API priority=WARNING
+     pod=%k8s.pod.name ns=%k8s.ns.name proc=%proc.name
+     reduced_command=%proc.name connection=%fd.name
+     sip=%fd.sip sport=%fd.sport rip=%fd.rip rport=%fd.rport)
   priority: WARNING
   tags: [cve-2025-1974, d4, lateral-movement, api]
 
@@ -114,11 +137,12 @@
   condition: >
     spawned_process and
     proc.name = kubectl and
-    container.id != host and
+    container and
     not k8s.ns.name in (kube-system)
   output: >
     kubectl executed inside container (CVE-2025-1974 D4)
-    (pod=%k8s.pod.name ns=%k8s.ns.name
-     cmdline=%proc.cmdline user=%user.name)
+    (rule=CVE-2025-1974 kubectl in Container priority=WARNING
+     pod=%k8s.pod.name ns=%k8s.ns.name proc=%proc.name
+     reduced_command=%proc.name parent=%proc.pname user=%user.name)
   priority: WARNING
   tags: [cve-2025-1974, d4, lateral-movement, kubectl]
