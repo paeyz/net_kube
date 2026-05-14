@@ -22,10 +22,16 @@ D4 checks Kubernetes API access by the ingress-nginx ServiceAccount.
 - Main detector: Kubernetes Audit Log
 - Policy: monitoring/audit-policy.yaml
 - Evidence: evidence/d4/audit-d4-filtered.json
-- Current evidence: secrets watch event by system:serviceaccount:ingress-nginx:ingress-nginx
+- Current evidence 1: secrets watch event by `system:serviceaccount:ingress-nginx:ingress-nginx`
+- Current evidence 2: kube-system secrets list event generated through Kubernetes impersonation
+- Additional evidence: `evidence/d4/audit-d4-kubesystem-secrets-list-redacted.json`
 
-Current limitation:
-The current evidence confirms secrets watch activity, but kube-system secrets list/get events require additional verification.
+Additional D4 verification:
+A kube-system secrets list request was generated using Kubernetes impersonation with `--as=system:serviceaccount:ingress-nginx:ingress-nginx`. The request was recorded in Kubernetes Audit Log with `verb=list`, `resource=secrets`, `namespace=kube-system`, and `responseStatus.code=200`.
+
+Important note:
+This verifies that the Audit Log policy can capture D4-style kube-system secrets list behavior. However, this was an impersonation-based verification, not a stolen-token reproduction.
+
 
 ## Useful Commands
 
