@@ -42,13 +42,14 @@
     ServiceAccount 토큰 파일을 읽으려 시도함.
     auth-snippet include 주입의 핵심 증거.
   condition: >
-    (open_read or open_write) and
-    fd.name = "/var/run/secrets/kubernetes.io/serviceaccount/token" and
-    proc.name in (nginx, nginx-ingress-co) and
+    evt.type in (open, openat, openat2) and
+    evt.dir = < and
+    evt.arg.name contains "serviceaccount/token" and
+    proc.name in (nginx, nginx-ingress-co, nginx-ingress-c) and
     k8s.ns.name = ingress-nginx
   output: >
     nginx read SA token (CVE-2025-1974 D3)
-    (pod=%k8s.pod.name proc=%proc.name file=%fd.name
+    (pod=%k8s.pod.name proc=%proc.name file=%evt.arg.name
      cmdline=%proc.cmdline user=%user.name)
   priority: CRITICAL
   tags: [cve-2025-1974, d3, token, lfi]
@@ -59,13 +60,14 @@
     ingress-nginx 파드에서 shell/cat/curl 등이
     ServiceAccount 토큰 파일을 접근함. kubectl exec 공격 패턴.
   condition: >
-    (open_read or open_write) and
-    fd.name = "/var/run/secrets/kubernetes.io/serviceaccount/token" and
+    evt.type in (open, openat, openat2) and
+    evt.dir = < and
+    evt.arg.name contains "serviceaccount/token" and
     proc.name in (sh, bash, cat, curl, wget, python3, python) and
     k8s.ns.name = ingress-nginx
   output: >
     Shell/tool reads SA token in ingress-nginx (CVE-2025-1974 D3 variant)
-    (pod=%k8s.pod.name proc=%proc.name file=%fd.name
+    (pod=%k8s.pod.name proc=%proc.name file=%evt.arg.name
      parent=%proc.pname cmdline=%proc.cmdline)
   priority: CRITICAL
   tags: [cve-2025-1974, d3, token, kubectl-exec]
