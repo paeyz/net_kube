@@ -12,7 +12,7 @@
 | 단계 | 내용 | 담당 | 상태 |
 |------|------|------|------|
 | Stage 1 | Python mock 시뮬레이션 | 전체 | ✅ 완료 |
-| Stage 2 | Minikube + ingress-nginx v1.11.4 클러스터 | 전체 | ✅ 완료 |
+| Stage 2 | Minikube + ingress-nginx v1.11.3 클러스터 | 전체 | ✅ 완료 |
 | Stage 3 | webhook 비인증 + auth-snippet 우회 PoC | Red | ✅ 완료 |
 | Stage 4 | SA 토큰 탈취 + Kubernetes API 접근 | Red | ✅ 완료 |
 | **Stage 5** | **공격 체인 자동화 + Docker 인수인계** | **Red** | **✅ 완료** |
@@ -39,7 +39,7 @@
 ## 빠른 시작 (최초 1회)
 
 ```bash
-# 1. 클러스터 생성 (ingress-nginx v1.11.4 포함)
+# 1. 클러스터 생성 (ingress-nginx v1.11.3 포함, allow-snippet-annotations=true 자동 설정)
 bash scripts/bootstrap_stage2.sh
 
 # 2. 클러스터 확인

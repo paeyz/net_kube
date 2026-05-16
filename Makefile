@@ -51,7 +51,7 @@ help:
 	@echo "  make experiment     실험 결과 수집"
 	@echo "  make clean          로그/결과 초기화"
 	@echo ""
-	@echo "── Stage 2 (Minikube + ingress-nginx v1.11.4) ─────────"
+	@echo "── Stage 2 (Minikube + ingress-nginx v1.11.3) ─────────"
 	@echo "  make bootstrap-stage2   도구 설치 + 클러스터 생성 (최초 1회)"
 	@echo "  make cluster-up         클러스터 시작"
 	@echo "  make cluster-down       클러스터 중지"

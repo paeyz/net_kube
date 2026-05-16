@@ -32,7 +32,7 @@ CVE-2025-1974 취약점의 동작 원리를 로컬 격리 환경에서 단계별
 | 단계 | 내용 | 상태 |
 |------|------|------|
 | Stage 1 | Python mock 시뮬레이션 (admission 흐름 학습) | ✅ 완료 |
-| Stage 2 | Minikube + ingress-nginx v1.11.4 클러스터 구축 | ✅ 완료 |
+| Stage 2 | Minikube + ingress-nginx v1.11.3 클러스터 구축 | ✅ 완료 |
 | Stage 3 | webhook 비인증 접근 + auth-snippet 우회 재현 | ✅ 완료 |
 | Stage 4 | SA 토큰 확인 + Kubernetes API 접근 체인 | ✅ 완료 |
 | Stage 5 | Red Team 공격 체인 자동화 + Docker 인수인계 | ✅ 완료 |
@@ -42,7 +42,7 @@ CVE-2025-1974 취약점의 동작 원리를 로컬 격리 환경에서 단계별
 ```
 ✅ webhook 인증 없이 AdmissionReview 요청 처리됨
 ✅ configuration-snippet → allow-snippet-annotations=false 차단 확인
-✅ auth-snippet → allow-snippet-annotations=false 상태에서도 우회 (CVE 핵심)
+✅ auth-snippet → allow-snippet-annotations=true 환경에서 우회 재현 (CVE 핵심)
 ✅ nginx가 inject된 파일을 실제 파싱 시도 (에러에 파일 경로 포함)
 ✅ 컨트롤러 SA 토큰 → kube-system secrets list 권한 확인
 ```
@@ -55,7 +55,7 @@ CVE-2025-1974 취약점의 동작 원리를 로컬 격리 환경에서 단계별
 |------|-----|
 | OS | Windows + WSL2 (Ubuntu) |
 | Kubernetes | v1.30.8 (Minikube, docker driver) |
-| ingress-nginx | **v1.11.4** (취약 버전) |
+| ingress-nginx | **v1.11.3** (취약 버전, SHA 고정) |
 | Python | 3.12 (Stage 1 mock) |
 | Minikube profile | `cve-2025-1974-lab` |
 

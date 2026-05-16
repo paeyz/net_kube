@@ -2,7 +2,7 @@
 
 > **작성자**: Red Team (paeyz)  
 > **리포**: https://github.com/paeyz/net_kube  
-> **환경**: Windows + WSL2 / Minikube / ingress-nginx v1.11.4
+> **환경**: Windows + WSL2 / Minikube / ingress-nginx v1.11.3 (SHA 고정, allow-snippet-annotations=true)
 
 ---
 

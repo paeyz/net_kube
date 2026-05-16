@@ -31,8 +31,9 @@ K8S_VERSION="v1.30.8"
 MINIKUBE_PROFILE="cve-2025-1974-lab"
 MINIKUBE_CPUS="2"
 MINIKUBE_MEMORY="4096"
-INGRESS_CHART_VERSION="4.11.4"        # controller=1.11.4, 취약 버전
-INGRESS_CONTROLLER_VERSION="v1.11.4"
+INGRESS_CHART_VERSION="4.11.3"        # controller=1.11.3, 취약 버전 (SHA 고정)
+INGRESS_CONTROLLER_VERSION="v1.11.3"
+INGRESS_DIGEST="sha256:d56f135b6462cfc476447cfe564b83a45e8bb7da2774963b00d12161112270b7"
 
 BIN_DIR="$HOME/.local/bin"
 ARCH="$(uname -m)"
@@ -131,12 +132,24 @@ else
         --namespace "${INGRESS_NS}" \
         --version "${INGRESS_CHART_VERSION}" \
         --set controller.image.tag="${INGRESS_CONTROLLER_VERSION}" \
+        --set controller.image.digest="${INGRESS_DIGEST}" \
         --set controller.admissionWebhooks.enabled=true \
         --set controller.admissionWebhooks.failurePolicy=Fail \
         --set controller.service.type=NodePort \
         --wait \
         --timeout 5m
     _ok "ingress-nginx 설치 완료"
+
+    # PoC 재현을 위해 allow-snippet-annotations=true 설정
+    # (v1.11.3 이미지에서 CVE-2025-1974 취약점 동작 조건)
+    _info "ConfigMap 패치: allow-snippet-annotations=true..."
+    kubectl patch configmap ingress-nginx-controller \
+        -n "${INGRESS_NS}" \
+        --type=merge \
+        -p '{"data":{"allow-snippet-annotations":"true"}}'
+    kubectl rollout restart deployment ingress-nginx-controller -n "${INGRESS_NS}"
+    kubectl rollout status deployment ingress-nginx-controller -n "${INGRESS_NS}" --timeout=60s
+    _ok "ConfigMap 패치 완료"
 fi
 
 # ── 9. 설치 확인 ──────────────────────────────────────────────────────────────
