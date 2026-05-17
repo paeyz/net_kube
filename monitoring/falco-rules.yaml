@@ -42,35 +42,16 @@
     ServiceAccount 토큰 파일을 읽으려 시도함.
     auth-snippet include 주입의 핵심 증거.
   condition: >
-    evt.type in (open, openat, openat2) and
-    evt.dir = > and
-    evt.arg.name contains "serviceaccount/token" and
-    proc.name in (nginx, nginx-ingress-co, nginx-ingress-c) and
-    container.image.repository contains "ingress-nginx/controller"
+    (open_read or open_write) and
+    fd.name = "/var/run/secrets/kubernetes.io/serviceaccount/token" and
+    proc.name in (nginx, nginx-ingress-co) and
+    k8s.ns.name = ingress-nginx
   output: >
     nginx read SA token (CVE-2025-1974 D3)
-    (pod=%k8s.pod.name ns=%k8s.ns.name proc=%proc.name file=%evt.arg.name
+    (pod=%k8s.pod.name ns=%k8s.ns.name proc=%proc.name file=%fd.name
      cmdline=%proc.cmdline user=%user.name)
   priority: CRITICAL
   tags: [cve-2025-1974, d3, token, lfi]
-
-# D3 보조: sh/cat/curl이 토큰 파일을 직접 읽는 경우 (kubectl exec fallback)
-- rule: CVE-2025-1974 Shell Reads SA Token in ingress-nginx
-  desc: >
-    ingress-nginx 파드에서 shell/cat/curl 등이
-    ServiceAccount 토큰 파일을 접근함. kubectl exec 공격 패턴.
-  condition: >
-    evt.type in (open, openat, openat2) and
-    evt.dir = > and
-    evt.arg.name contains "serviceaccount/token" and
-    proc.name in (sh, bash, cat, curl, wget, python3, python) and
-    container.image.repository contains "ingress-nginx/controller"
-  output: >
-    Shell/tool reads SA token in ingress-nginx (CVE-2025-1974 D3 variant)
-    (pod=%k8s.pod.name ns=%k8s.ns.name proc=%proc.name file=%evt.arg.name
-     parent=%proc.pname cmdline=%proc.cmdline)
-  priority: CRITICAL
-  tags: [cve-2025-1974, d3, token, kubectl-exec]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # D4: Container Lateral Movement — Kubernetes API Access
@@ -92,23 +73,6 @@
      cmdline=%proc.cmdline)
   priority: WARNING
   tags: [cve-2025-1974, d4, lateral-movement, api]
-
-# D3 진단룰: 조건 좁히기 전에 Falco가 이벤트 자체를 보는지 확인용
-# D3 alert가 안 뜰 때만 임시 활성화 — 확인 후 priority를 DEBUG로 낮추거나 삭제
-- rule: CVE-2025-1974 D3 Diagnostic
-  desc: >
-    D3 룰 디버깅용 — serviceaccount/token 경로가 포함된 open 계열 syscall 전체 로깅.
-    proc.name/container 조건 없이 넓게 잡아서 Falco가 이벤트를 보는지 확인.
-  condition: >
-    evt.type in (open, openat, openat2) and
-    evt.dir = > and
-    evt.arg.name contains "serviceaccount/token"
-  output: >
-    D3 diagnostic open detected
-    (proc=%proc.name ns=%k8s.ns.name img=%container.image.repository
-     file=%evt.arg.name cmdline=%proc.cmdline)
-  priority: WARNING
-  tags: [cve-2025-1974, d3, diagnostic]
 
 - rule: CVE-2025-1974 kubectl in Container
   desc: >
