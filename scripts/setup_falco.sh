@@ -57,6 +57,17 @@ cmd_rules() {
     -n "$FALCO_NS" \
     --dry-run=client -o yaml | kubectl apply -f -
 
+  kubectl get configmap falco -n "$FALCO_NS" -o yaml \
+    | sed 's/rule_matching: first/rule_matching: all/' \
+    | kubectl apply -f -
+
+  if ! kubectl get daemonset falco -n "$FALCO_NS" -o yaml | grep -q "name: custom-cve-rules"; then
+    kubectl patch daemonset falco -n "$FALCO_NS" --type=json -p='[
+      {"op":"add","path":"/spec/template/spec/volumes/-","value":{"name":"custom-cve-rules","configMap":{"name":"falco-cve-2025-1974-rules","items":[{"key":"falco_rules.local.yaml","path":"falco_rules.local.yaml"}]}}},
+      {"op":"add","path":"/spec/template/spec/containers/0/volumeMounts/-","value":{"name":"custom-cve-rules","mountPath":"/etc/falco/falco_rules.local.yaml","subPath":"falco_rules.local.yaml","readOnly":true}}
+    ]'
+  fi
+
   # Falco DaemonSet에 ConfigMap 마운트 (이미 설정된 경우 스킵)
   echo "[Falco] Falco 파드 재시작으로 룰 반영..."
   kubectl rollout restart daemonset/falco -n "$FALCO_NS" 2>/dev/null || true

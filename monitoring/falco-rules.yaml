@@ -14,23 +14,46 @@
 
 # ─────────────────────────────────────────────────────────────────────────────
 # D1: Webhook Direct Access
-# 파드에서 ingress-nginx admission webhook 서비스(8443)에 직접 TCP 연결 시도
+# 파드에서 ingress-nginx admission webhook 서비스(443/8443)에 직접 TCP 연결 시도
 # ─────────────────────────────────────────────────────────────────────────────
 - rule: CVE-2025-1974 Webhook Direct Access
   desc: >
-    클러스터 내 파드가 ingress-nginx admission webhook(8443)에
+    클러스터 내 파드가 ingress-nginx admission webhook(443/8443)에
     직접 TCP 연결을 시도함. kube-apiserver를 통하지 않는 비정상 접근.
   condition: >
     evt.type = connect and
-    fd.sport = 8443 and
+    (fd.typechar = 4 or fd.typechar = 6) and
+    container and
     not k8s.ns.name in (ingress-nginx, kube-system) and
-    container.id != host
+    fd.sip.name = "ingress-nginx-controller-admission.ingress-nginx.svc.cluster.local" and
+    fd.sport in (443, 8443)
   output: >
-    Webhook direct connect detected
+    CVE-2025-1974 Webhook Direct Access
     (pod=%k8s.pod.name ns=%k8s.ns.name proc=%proc.name
-     dst_ip=%fd.rip dst_port=%fd.rport cmdline=%proc.cmdline)
+     fd.name=%fd.name fd.sip=%fd.sip fd.sip.name=%fd.sip.name
+     fd.sport=%fd.sport fd.rip=%fd.rip fd.rport=%fd.rport
+     fd.lport=%fd.lport cmdline=%proc.cmdline)
   priority: CRITICAL
   tags: [cve-2025-1974, d1, webhook, network]
+
+- rule: CVE-2025-1974 D1 Webhook Connect Debug
+  desc: >
+    D1 디버깅용. attacker-pod의 connect 이벤트에서 Falco fd 필드가
+    어떤 방향으로 기록되는지 확인한다.
+  condition: >
+    evt.type = connect and
+    (fd.typechar = 4 or fd.typechar = 6) and
+    container and
+    not k8s.ns.name in (ingress-nginx, kube-system) and
+    fd.sport in (443, 8443)
+  output: >
+    CVE-2025-1974 D1 fd debug
+    (pod=%k8s.pod.name ns=%k8s.ns.name proc=%proc.name
+     fd.name=%fd.name fd.sip=%fd.sip fd.sip.name=%fd.sip.name
+     fd.sport=%fd.sport fd.rip=%fd.rip fd.rip.name=%fd.rip.name
+     fd.rport=%fd.rport fd.lport=%fd.lport cmdline=%proc.cmdline)
+  priority: NOTICE
+  tags: [cve-2025-1974, d1, webhook, debug]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # D3: nginx ServiceAccount Token File Access

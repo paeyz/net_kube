@@ -1,0 +1,7 @@
+D1 direct webhook TCP connect target=ingress-nginx-controller-admission.ingress-nginx.svc.cluster.local:443
+D1 connected ('10.98.129.52', 443)
+D1 sent webhook POST
+HTTP/1.1 400 Bad Request
+Date: Sun, 17 May 2026 05:03:44 GMT
+Content-Length: 0
+Connection: close
