@@ -116,16 +116,16 @@ The key Falco alert is `CVE-2025-1974 Webhook Direct Access`.
 Fresh clone from the handoff branch:
 
 ```bash
-git clone -b detection/d1-d4-handoff <내 GitHub net_kube 주소>
+git clone -b detection/d1-d4-handoff-final https://github.com/seojinn0713/net_kube.git
 cd net_kube
 ```
 
 Existing repo:
 
 ```bash
-git remote add yoon <내 GitHub net_kube 주소>
+git remote add yoon https://github.com/seojinn0713/net_kube.git
 git fetch yoon
-git switch detection/d1-d4-handoff
+git switch detection/d1-d4-handoff-final
 ```
 
 ## Next Step
