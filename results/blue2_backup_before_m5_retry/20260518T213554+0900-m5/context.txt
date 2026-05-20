@@ -1,0 +1,6 @@
+# Kubernetes context
+current_context: cve-2025-1974-netpol
+cluster_server: https://127.0.0.1:58713
+
+# controller image
+controller=registry.k8s.io/ingress-nginx/controller:v1.11.3@sha256:d56f135b6462cfc476447cfe564b83a45e8bb7da2774963b00d12161112270b7

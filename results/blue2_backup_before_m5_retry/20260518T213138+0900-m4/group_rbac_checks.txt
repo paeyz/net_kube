@@ -1,0 +1,24 @@
+# Group-aware RBAC checks
+Generated: 2026-05-18T21:31:45+09:00
+These checks do not read Secret values.
+
+## RBAC can-i check
+$ kubectl auth can-i list secrets -n kube-system --as=system:serviceaccount:ingress-nginx:ingress-nginx
+
+no
+
+## exit_status: 1
+
+## RBAC can-i check
+$ kubectl auth can-i list secrets -n kube-system --as=system:serviceaccount:ingress-nginx:ingress-nginx --as-group=system:serviceaccounts --as-group=system:serviceaccounts:ingress-nginx --as-group=system:authenticated
+
+no
+
+## exit_status: 1
+
+## RBAC can-i check
+$ kubectl auth can-i list secrets -n ingress-nginx --as=system:serviceaccount:ingress-nginx:ingress-nginx --as-group=system:serviceaccounts --as-group=system:serviceaccounts:ingress-nginx --as-group=system:authenticated
+
+yes
+
+## exit_status: 0

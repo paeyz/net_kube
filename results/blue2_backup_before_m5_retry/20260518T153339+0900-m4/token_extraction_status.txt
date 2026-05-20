@@ -1,0 +1,2 @@
+token_extraction: success
+pod: ingress-nginx-controller-5dffc86865-nw27q

@@ -12,9 +12,9 @@ Blue Team 2는 CVE-2025-1974 ingress-nginx 실습에서 M4 RBAC 최소 권한화
 |---|---|
 | 실행 범위 | 로컬 Minikube 실습 환경 전용 |
 | 외부 대상 | 사용하지 않음 |
-| M4 최신 요약 | `results/blue2/20260518T153339+0900-m4/summary.md` |
+| M4 최신 요약 | `results/blue2/20260518T213138+0900-m4/summary.md` |
 | B1 최신 요약 | `results/blue2/20260518T160016+0900-b1/summary.md` |
-| M5 최신 요약 | `results/blue2/20260520T235900+0900-m5/summary.md` |
+| M5 최신 요약 | `results/blue2/m5-diagnostics-20260518T222322+0900/summary.md` |
 | M0 vulnerable baseline | M4 baseline_attack_chain.log에 기록됨 |
 
 ## 3. M4 RBAC 최소 권한화
@@ -65,22 +65,23 @@ B1은 취약 기준인 `registry.k8s.io/ingress-nginx/controller:v1.11.3`과 패
 
 | 항목 | 결과 |
 |---|---|
-| Calico / NetworkPolicy CNI | `confirmed` |
-| controller health restored | `yes` |
-| admission endpoints non-empty | `yes` |
-| M2 direct Service DNS comparison | `passed` |
-| M3 ValidatingAdmissionPolicy | `present and deny-tested` |
-| M4 kube-system Secrets 권한 | `no` |
-| M4 ingress-nginx Secrets 권한 | `yes` |
-| Helm release status after retry | `failed` |
-| M5 final verdict | `partial` |
+| Calico / NetworkPolicy CNI | `확인됨` |
+| controller health restored | `no` |
+| admission endpoints non-empty | `no` |
+| M2 direct Service DNS comparison | `skipped: endpoints empty` |
+| Docker attacker pod validation | `previous attempt not counted as M2 proof` |
+| M3 ValidatingAdmissionPolicy | `present` |
+| M4 kube-system Secrets 권한 | `denied` |
+| M4 ingress-nginx Secrets 권한 | `allowed` |
+| D1/D2/D3/D4 mapping | `conceptually clear; D1/M2 not proven` |
+| M5 final verdict | `보류 / 환경 문제` |
 
-**현재 판정:** `partial`
+**현재 판정:** `보류 / 환경 문제`
 
-M2, M3, M4 evidence passed and controller health was restored, but Helm release status is `failed` because the scoped upgrade hit the known ConfigMap field-manager conflict.
+ingress-nginx controller가 CrashLoopBackOff 상태이고 admission endpoint가 비어 있어 M2 직접 Service DNS 비교를 해석할 수 없다.
 
 M5는 M2, M3, M4가 중복 방어가 아니라 서로 다른 경로를 담당하는 defense-in-depth 조합임을 확인한다. M2는 네트워크 직접 접근, M3는 kube-apiserver 경유 악성 Ingress, M4는 탈취 토큰의 권한 범위를 다룬다.
-최신 M5 결과는 위 표의 최종 판정을 따른다. `passed`가 아니면 어떤 조건이 남았는지 이유와 증거 경로를 함께 확인해야 하며, M5의 부분 완료 또는 보류 상태는 이미 입증된 M4/B1 결과를 무효화하지 않는다.
+현재 netpol profile에서는 Calico와 M3/M4 증거는 확인되었지만, ingress-nginx controller가 CrashLoopBackOff이고 admission endpoint가 비어 있어 M2 직접 Service DNS 비교를 수행하지 않았다. 이 M5 보류 상태는 이미 입증된 M4/B1 결과를 무효화하지 않는다.
 
 ## 6. Red Team 공격 단계와의 연결
 

@@ -67,6 +67,9 @@ def discover_latest_summaries(results_dir: Path) -> dict[str, Summary]:
     buckets: dict[str, list[Path]] = {"m4": [], "b1": [], "m5": []}
     for path in results_dir.glob("*/summary.md"):
         dirname = path.parent.name
+        if dirname.startswith("m5-diagnostics-"):
+            buckets["m5"].append(path)
+            continue
         for kind in buckets:
             if dirname.endswith(f"-{kind}"):
                 buckets[kind].append(path)
@@ -76,6 +79,18 @@ def discover_latest_summaries(results_dir: Path) -> dict[str, Summary]:
     for kind, paths in buckets.items():
         if not paths:
             continue
+        if kind == "m4":
+            original_lab_paths = [
+                p
+                for p in paths
+                if "Kubernetes context: `cve-2025-1974-lab`" in p.read_text(encoding="utf-8", errors="replace")
+            ]
+            if original_lab_paths:
+                paths = original_lab_paths
+        if kind == "m5":
+            completed_m5_paths = [p for p in paths if p.parent.name.endswith("-m5")]
+            if completed_m5_paths:
+                paths = completed_m5_paths
         selected = sorted(paths, key=lambda p: (p.parent.name, p.stat().st_mtime))[-1]
         latest[kind] = Summary(kind=kind, path=selected, text=redact(selected.read_text(encoding="utf-8")))
     return latest
@@ -135,11 +150,14 @@ def get_value(summary: Summary | None, item_pattern: str) -> str:
 def get_bullet_value(summary: Summary | None, label: str) -> str:
     if summary is None:
         return "미실행"
-    pattern = re.compile(rf"^-\s+{re.escape(label)}:\s+`?([^`\n]+)`?", re.MULTILINE)
+    pattern = re.compile(rf"^-\s+{re.escape(label)}:\s+(.+)$", re.MULTILINE)
     match = pattern.search(summary.text)
     if not match:
         return "미확인"
-    return match.group(1).strip()
+    value = match.group(1).strip()
+    if value.startswith("`") and value.endswith("`"):
+        value = value[1:-1]
+    return value.strip()
 
 
 def normalize_code_value(value: str) -> str:
@@ -320,6 +338,22 @@ def b1_status(summary: Summary | None) -> tuple[str, str]:
     )
 
 
+def m5_status(summary: Summary | None) -> tuple[str, str]:
+    if summary is None:
+        return "미실행", "M5 summary.md가 아직 없어 결과를 판단할 수 없다."
+
+    verdict = get_bullet_value(summary, "M5 판정")
+    reason = get_bullet_value(summary, "판정 이유")
+    if verdict != "미확인":
+        return verdict, reason
+
+    final_verdict = get_value(summary, r"M5 final verdict")
+    if final_verdict != "미확인":
+        return normalize_code_value(final_verdict), "M5 핵심 결과 표의 최종 판정을 사용했다."
+
+    return "미확인", "M5 summary.md에서 명시적 판정을 찾지 못했다."
+
+
 def build_report(summaries: dict[str, Summary]) -> str:
     m4 = summaries.get("m4")
     b1 = summaries.get("b1")
@@ -333,6 +367,7 @@ def build_report(summaries: dict[str, Summary]) -> str:
 
     m4_verdict, m4_note = m4_status(m4)
     b1_verdict, b1_note = b1_status(b1)
+    m5_verdict, m5_note = m5_status(m5)
 
     lines: list[str] = []
     lines.append("# Blue Team 2 보고서 초안\n")
@@ -367,7 +402,10 @@ def build_report(summaries: dict[str, Summary]) -> str:
 
     lines.append("## 5. M5 Full Stack 통합 검증\n")
     lines.append(render_result_table(m5))
-    lines.append("M5는 M2, M3, M4가 중복 방어가 아니라 서로 다른 경로를 담당하는 defense-in-depth 조합임을 확인한다. M2는 네트워크 직접 접근, M3는 kube-apiserver 경유 악성 Ingress, M4는 탈취 토큰의 권한 범위를 다룬다.\n")
+    lines.append(f"**현재 판정:** `{m5_verdict}`\n")
+    lines.append(f"{m5_note}\n")
+    lines.append("M5는 M2, M3, M4가 중복 방어가 아니라 서로 다른 경로를 담당하는 defense-in-depth 조합임을 확인한다. M2는 네트워크 직접 접근, M3는 kube-apiserver 경유 악성 Ingress, M4는 탈취 토큰의 권한 범위를 다룬다.")
+    lines.append("최신 M5 결과는 위 표의 최종 판정을 따른다. `passed`가 아니면 어떤 조건이 남았는지 이유와 증거 경로를 함께 확인해야 하며, M5의 부분 완료 또는 보류 상태는 이미 입증된 M4/B1 결과를 무효화하지 않는다.\n")
 
     lines.append("## 6. Red Team 공격 단계와의 연결\n")
     lines.append("| 공격 단계 | 의미 | 관련 방어 | 최신 관찰 요약 |")

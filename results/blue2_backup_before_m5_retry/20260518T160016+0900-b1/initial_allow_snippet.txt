@@ -1,0 +1,2 @@
+# ingress-nginx controller ConfigMap (initial)
+true

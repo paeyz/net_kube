@@ -1,0 +1,25 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  annotations:
+    meta.helm.sh/release-name: ingress-nginx
+    meta.helm.sh/release-namespace: ingress-nginx
+  creationTimestamp: "2026-05-18T12:27:15Z"
+  labels:
+    app.kubernetes.io/instance: ingress-nginx
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: ingress-nginx
+    app.kubernetes.io/part-of: ingress-nginx
+    app.kubernetes.io/version: 1.11.3
+    helm.sh/chart: ingress-nginx-4.11.3
+  name: ingress-nginx
+  resourceVersion: "1169"
+  uid: bffa1e9c-a404-4ba1-b611-87c78c23526a
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ingress-nginx
+subjects:
+- kind: ServiceAccount
+  name: ingress-nginx
+  namespace: ingress-nginx

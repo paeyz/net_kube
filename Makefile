@@ -33,7 +33,7 @@ export PATH
         docker-build attacker-deploy attacker-logs attacker-delete \
         defense-m1 defense-m1-restore defense-m2 defense-m2-remove \
         defense-m3 defense-m3-remove defense-m4 defense-restore \
-        blue2-m4 blue2-m4-remove-broad-crb blue2-b1 blue2-m5 blue2-report blue2-clean \
+        blue2-m4 blue2-m4-remove-broad-crb blue2-b1 blue2-m5 blue2-m5-controller-safe-retry blue2-report blue2-clean \
         detect-setup detect-falco detect-falco-rules detect-falco-logs detect-falco-remove \
         detect-gatekeeper detect-gatekeeper-policy detect-gatekeeper-violations detect-gatekeeper-remove \
         detect-audit detect-audit-tail detect-audit-disable \
@@ -94,6 +94,7 @@ help:
 	@echo "  make blue2-m4-remove-broad-crb   M4 검증 + broad CRB 백업/삭제 옵션"
 	@echo "  make blue2-b1                    ingress-nginx v1.11.5 패치 검증"
 	@echo "  make blue2-m5                    M2+M3+M4 통합 검증"
+	@echo "  make blue2-m5-controller-safe-retry  controller-safe M4 기반 M5 재시도"
 	@echo "  make blue2-report                Korean report draft 생성"
 	@echo "  make blue2-clean                 Blue2 generated results 삭제"
 	@echo ""
@@ -325,6 +326,9 @@ blue2-b1:
 
 blue2-m5:
 	bash $(LAB_ROOT)/scripts/blue2/m5_fullstack_validation.sh
+
+blue2-m5-controller-safe-retry:
+	bash $(LAB_ROOT)/scripts/blue2/m5_controller_safe_retry.sh
 
 blue2-report:
 	$(PYTHON) $(LAB_ROOT)/scripts/blue2/generate_report.py
