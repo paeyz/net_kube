@@ -1,20 +1,68 @@
-# M3 — ValidatingAdmissionPolicy: auth-snippet annotation 차단
+# M3 — ValidatingAdmissionPolicy: dangerous nginx annotation deny
 #
-# Kubernetes 1.28+ native policy (CEL 기반).
-# kube-apiserver 경로에서 동작 → direct webhook POST는 우회 가능.
-# API-Server Driver(kubectl apply) 경로 차단에 효과적.
+# Kubernetes 1.28+ native admission policy using CEL.
 #
-# 적용: kubectl apply -f defense/m3-vap.yaml
-# 검증: kubectl apply -f - <<EOF
+# 방어 목적:
+#   kube-apiserver를 통해 생성/수정되는 Ingress 리소스에서
+#   위험한 ingress-nginx snippet annotation을 Deny한다.
+#
+# 탐지팀 D2와의 연결:
+#   D2 Gatekeeper 탐지 정책이 확인한 위험 annotation/pattern을
+#   Kubernetes native ValidatingAdmissionPolicy Deny 정책으로 방어화한다.
+#
+# 적용 범위:
+#   - kube-apiserver 경유 Ingress CREATE/UPDATE 요청
+#
+# 한계:
+#   - CVE-2025-1974 direct admission webhook POST는 kube-apiserver policy를 우회한다.
+#   - direct webhook 접근 완화는 M1/M2를 사용한다.
+#
+# Covered annotations:
+#   - nginx.ingress.kubernetes.io/auth-snippet
+#   - nginx.ingress.kubernetes.io/server-snippet
+#   - nginx.ingress.kubernetes.io/configuration-snippet
+#
+# Blocked patterns:
+#   - include
+#   - load_module
+#   - /etc/passwd
+#   - /var/run/secrets/
+#   - /proc/self/
+#   - .so
+#
+# 적용:
+#   kubectl apply -f defense/m3-vap.yaml
+#   make defense-m3
+#
+# 제거:
+#   kubectl delete -f defense/m3-vap.yaml --ignore-not-found
+#   make defense-m3-remove
+#
+# 검증 예시:
+#   kubectl apply -f - <<'EOF'
 #   apiVersion: networking.k8s.io/v1
 #   kind: Ingress
 #   metadata:
 #     name: test-vap
+#     namespace: default
 #     annotations:
 #       nginx.ingress.kubernetes.io/auth-snippet: "include /etc/passwd;"
-#   spec: { ... }
-# EOF
-# → Error: admission webhook denied (VAP)
+#   spec:
+#     ingressClassName: nginx
+#     rules:
+#     - host: test.local
+#       http:
+#         paths:
+#         - path: /
+#           pathType: Prefix
+#           backend:
+#             service:
+#               name: kubernetes
+#               port:
+#                 number: 443
+#   EOF
+#   # Expected: ValidatingAdmissionPolicy deny
+
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
@@ -22,16 +70,17 @@ metadata:
   name: block-dangerous-nginx-annotations
   labels:
     mitigation: m3-vap
+    cve: cve-2025-1974
 spec:
   failurePolicy: Fail
   matchConstraints:
     resourceRules:
-    - apiGroups:   ["networking.k8s.io"]
+    - apiGroups: ["networking.k8s.io"]
       apiVersions: ["v1"]
-      operations:  ["CREATE", "UPDATE"]
-      resources:   ["ingresses"]
+      operations: ["CREATE", "UPDATE"]
+      resources: ["ingresses"]
   validations:
-  # auth-snippet에 위험 지시어(include, load_module) 포함 차단
+  # auth-snippet dangerous directives and file paths
   - expression: >
       !has(object.metadata.annotations) ||
       !(
@@ -39,12 +88,15 @@ spec:
         (
           object.metadata.annotations["nginx.ingress.kubernetes.io/auth-snippet"].contains("include ") ||
           object.metadata.annotations["nginx.ingress.kubernetes.io/auth-snippet"].contains("load_module") ||
-          object.metadata.annotations["nginx.ingress.kubernetes.io/auth-snippet"].contains("/var/run/secrets") ||
+          object.metadata.annotations["nginx.ingress.kubernetes.io/auth-snippet"].contains("/etc/passwd") ||
+          object.metadata.annotations["nginx.ingress.kubernetes.io/auth-snippet"].contains("/var/run/secrets/") ||
+          object.metadata.annotations["nginx.ingress.kubernetes.io/auth-snippet"].contains("/proc/self/") ||
           object.metadata.annotations["nginx.ingress.kubernetes.io/auth-snippet"].contains(".so")
         )
       )
-    message: "auth-snippet annotation에 위험한 nginx 지시어(include, load_module)가 포함되어 있습니다."
-  # server-snippet도 동일하게 차단
+    message: "dangerous nginx auth-snippet annotation is not allowed"
+
+  # server-snippet dangerous directives and file paths
   - expression: >
       !has(object.metadata.annotations) ||
       !(
@@ -52,10 +104,30 @@ spec:
         (
           object.metadata.annotations["nginx.ingress.kubernetes.io/server-snippet"].contains("include ") ||
           object.metadata.annotations["nginx.ingress.kubernetes.io/server-snippet"].contains("load_module") ||
+          object.metadata.annotations["nginx.ingress.kubernetes.io/server-snippet"].contains("/etc/passwd") ||
+          object.metadata.annotations["nginx.ingress.kubernetes.io/server-snippet"].contains("/var/run/secrets/") ||
+          object.metadata.annotations["nginx.ingress.kubernetes.io/server-snippet"].contains("/proc/self/") ||
           object.metadata.annotations["nginx.ingress.kubernetes.io/server-snippet"].contains(".so")
         )
       )
-    message: "server-snippet annotation에 위험한 nginx 지시어가 포함되어 있습니다."
+    message: "dangerous nginx server-snippet annotation is not allowed"
+
+  # configuration-snippet dangerous directives and file paths
+  - expression: >
+      !has(object.metadata.annotations) ||
+      !(
+        "nginx.ingress.kubernetes.io/configuration-snippet" in object.metadata.annotations &&
+        (
+          object.metadata.annotations["nginx.ingress.kubernetes.io/configuration-snippet"].contains("include ") ||
+          object.metadata.annotations["nginx.ingress.kubernetes.io/configuration-snippet"].contains("load_module") ||
+          object.metadata.annotations["nginx.ingress.kubernetes.io/configuration-snippet"].contains("/etc/passwd") ||
+          object.metadata.annotations["nginx.ingress.kubernetes.io/configuration-snippet"].contains("/var/run/secrets/") ||
+          object.metadata.annotations["nginx.ingress.kubernetes.io/configuration-snippet"].contains("/proc/self/") ||
+          object.metadata.annotations["nginx.ingress.kubernetes.io/configuration-snippet"].contains(".so")
+        )
+      )
+    message: "dangerous nginx configuration-snippet annotation is not allowed"
+
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
@@ -63,8 +135,9 @@ metadata:
   name: block-dangerous-nginx-annotations-binding
   labels:
     mitigation: m3-vap
+    cve: cve-2025-1974
 spec:
   policyName: block-dangerous-nginx-annotations
   validationActions: [Deny]
   matchResources:
-    namespaceSelector: {}   # 모든 네임스페이스에 적용
+    namespaceSelector: {}

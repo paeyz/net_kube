@@ -34,7 +34,7 @@ spec:
     # Minikube의 control-plane node CIDR (실제 IP는 환경에 따라 다름)
     # kubectl get node -o wide 로 확인 후 수정
     - ipBlock:
-        cidr: 192.168.49.0/24   # minikube docker driver 기본 CIDR
+        cidr: 192.168.58.0/24   # minikube docker driver 기본 CIDR
   # HTTP(80) / HTTPS(443): 모든 파드에서 허용 (정상 트래픽)
   - ports:
     - port: 80
