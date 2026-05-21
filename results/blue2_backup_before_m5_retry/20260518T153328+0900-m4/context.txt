@@ -1,0 +1,10 @@
+# Kubernetes context
+current_context: cve-2025-1974-lab
+cluster_server: https://127.0.0.1:57322
+
+# ingress-nginx namespace
+NAME            STATUS   AGE
+ingress-nginx   Active   19m
+
+# controller image
+controller=registry.k8s.io/ingress-nginx/controller:v1.11.5@sha256:a1cbad75b0a7098bf9325132794dddf9eef917e8a7fe246749a4cea7ff6f01eb

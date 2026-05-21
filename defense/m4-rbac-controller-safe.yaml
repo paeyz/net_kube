@@ -1,0 +1,119 @@
+# M4 controller-safe RBAC hardening for the Blue Team 2 M5 retry.
+#
+# This manifest is intentionally separate from m4-rbac-hardened.yaml.
+# It is designed for a namespace-scoped ingress-nginx controller:
+#
+#   helm upgrade ingress-nginx ingress-nginx/ingress-nginx \
+#     --namespace ingress-nginx \
+#     --reuse-values \
+#     --set controller.scope.enabled=true \
+#     --set controller.scope.namespace=ingress-nginx \
+#     --set rbac.scope=true
+#
+# Why the scope requirement matters:
+# - A cluster-wide ingress-nginx controller tries to list/watch Secrets across
+#   the cluster. Removing that permission can make the controller unhealthy.
+# - A namespace-scoped controller can keep required Secret access inside the
+#   ingress-nginx namespace while kube-system Secrets remain denied.
+#
+# This file never grants cluster-wide Secret access.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ingress-nginx-controller-safe
+  namespace: ingress-nginx
+  labels:
+    mitigation: m4-rbac-controller-safe
+rules:
+- apiGroups: [""]
+  resources:
+  - configmaps
+  - pods
+  - secrets
+  - endpoints
+  - services
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["networking.k8s.io"]
+  resources:
+  - ingresses
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["networking.k8s.io"]
+  resources:
+  - ingresses/status
+  verbs: ["update"]
+- apiGroups: ["coordination.k8s.io"]
+  resources:
+  - leases
+  resourceNames:
+  - ingress-nginx-leader
+  verbs: ["get", "update"]
+- apiGroups: ["coordination.k8s.io"]
+  resources:
+  - leases
+  verbs: ["create"]
+- apiGroups: [""]
+  resources:
+  - events
+  verbs: ["create", "patch"]
+- apiGroups: ["discovery.k8s.io"]
+  resources:
+  - endpointslices
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ingress-nginx-controller-safe
+  namespace: ingress-nginx
+  labels:
+    mitigation: m4-rbac-controller-safe
+subjects:
+- kind: ServiceAccount
+  name: ingress-nginx
+  namespace: ingress-nginx
+roleRef:
+  kind: Role
+  name: ingress-nginx-controller-safe
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ingress-nginx-controller-safe-cluster-read
+  labels:
+    mitigation: m4-rbac-controller-safe
+rules:
+- apiGroups: [""]
+  resources:
+  - nodes
+  verbs: ["get"]
+- apiGroups: [""]
+  resources:
+  - namespaces
+  resourceNames:
+  - ingress-nginx
+  verbs: ["get"]
+- apiGroups: ["networking.k8s.io"]
+  resources:
+  - ingressclasses
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["admissionregistration.k8s.io"]
+  resources:
+  - validatingwebhookconfigurations
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ingress-nginx-controller-safe-cluster-read
+  labels:
+    mitigation: m4-rbac-controller-safe
+subjects:
+- kind: ServiceAccount
+  name: ingress-nginx
+  namespace: ingress-nginx
+roleRef:
+  kind: ClusterRole
+  name: ingress-nginx-controller-safe-cluster-read
+  apiGroup: rbac.authorization.k8s.io

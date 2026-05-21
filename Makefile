@@ -33,6 +33,7 @@ export PATH
         docker-build attacker-deploy attacker-logs attacker-delete \
         defense-m1 defense-m1-restore defense-m2 defense-m2-remove \
         defense-m3 defense-m3-remove defense-m4 defense-restore \
+        blue2-m4 blue2-m4-remove-broad-crb blue2-b1 blue2-m5 blue2-m5-controller-safe-retry blue2-report blue2-clean \
         detect-setup detect-falco detect-falco-rules detect-falco-logs detect-falco-remove \
         detect-gatekeeper detect-gatekeeper-policy detect-gatekeeper-violations detect-gatekeeper-remove \
         detect-audit detect-audit-tail detect-audit-disable \
@@ -87,6 +88,15 @@ help:
 	@echo "  make defense-m3-remove    M3: VAP 제거"
 	@echo "  make defense-m4           M4: RBAC 최소 권한 적용"
 	@echo "  make defense-restore      전체 방어 정책 제거 (원상복구)"
+	@echo ""
+	@echo "── Blue Team 2 (M4/B1/M5 자동 검증) ───────────────────"
+	@echo "  make blue2-m4                    M4 RBAC 최소 권한화 검증"
+	@echo "  make blue2-m4-remove-broad-crb   M4 검증 + broad CRB 백업/삭제 옵션"
+	@echo "  make blue2-b1                    ingress-nginx v1.11.5 패치 검증"
+	@echo "  make blue2-m5                    M2+M3+M4 통합 검증"
+	@echo "  make blue2-m5-controller-safe-retry  controller-safe M4 기반 M5 재시도"
+	@echo "  make blue2-report                Korean report draft 생성"
+	@echo "  make blue2-clean                 Blue2 generated results 삭제"
 	@echo ""
 	@echo "── Detection Team (탐지 구현) ──────────────────────────"
 	@echo "  make detect-setup             Falco + Gatekeeper + Audit Log 일괄 설치"
@@ -215,7 +225,9 @@ poc-step3:
 ATTACK_TARGET  ?= https://127.0.0.1:8443
 ATTACK_OUT     ?= $(LAB_ROOT)/results
 ATTACKER_IMAGE ?= cve-2025-1974-attacker:latest
-PF_PID_FILE    := /tmp/poc_portforward.pid
+PF_PID_FILE    ?= /tmp/poc_portforward.pid
+PF_LOG_FILE    ?= /tmp/poc_portforward.log
+export PF_LOG_FILE PF_PID_FILE
 
 # port-forward를 열고 attack_chain.py를 실행하는 내부 헬퍼
 # ATTACK_STEP 변수로 단계 제어 (enum | token | lateral | all)
@@ -223,7 +235,7 @@ _attack-run:
 	@if ! ss -tlnp 2>/dev/null | grep -q ':8443'; then \
 	  echo "[INFO] port-forward 시작 (8443)..."; \
 	  kubectl port-forward svc/ingress-nginx-controller-admission \
-	    8443:443 -n ingress-nginx >/tmp/poc_portforward.log 2>&1 & \
+	    8443:443 -n ingress-nginx >$(PF_LOG_FILE) 2>&1 & \
 	  echo $$! > $(PF_PID_FILE); \
 	  sleep 2; \
 	fi
@@ -301,6 +313,35 @@ defense-restore:
 	kubectl delete -f $(LAB_ROOT)/defense/m2-networkpolicy.yaml --ignore-not-found
 	kubectl delete -f $(LAB_ROOT)/defense/m4-rbac-hardened.yaml --ignore-not-found
 	@echo "[restore] 완료 — make cluster-status 로 상태 확인"
+
+# ── Blue Team 2 (M4/B1/M5 자동 검증) ────────────────────────────────────────
+blue2-m4:
+	bash $(LAB_ROOT)/scripts/blue2/m4_rbac_validation.sh
+
+blue2-m4-remove-broad-crb:
+	bash $(LAB_ROOT)/scripts/blue2/m4_rbac_validation.sh --remove-broad-crb
+
+blue2-b1:
+	bash $(LAB_ROOT)/scripts/blue2/b1_patch_validation.sh
+
+blue2-m5:
+	bash $(LAB_ROOT)/scripts/blue2/m5_fullstack_validation.sh
+
+blue2-m5-controller-safe-retry:
+	bash $(LAB_ROOT)/scripts/blue2/m5_controller_safe_retry.sh
+
+blue2-report:
+	$(PYTHON) $(LAB_ROOT)/scripts/blue2/generate_report.py
+
+blue2-clean:
+	@echo "⚠  Blue2 generated results will be removed: $(LAB_ROOT)/results/blue2"
+	@read -p "Type 'yes' to continue: " ans; \
+	if [ "$$ans" = "yes" ]; then \
+	  rm -rf "$(LAB_ROOT)/results/blue2"; \
+	  echo "[blue2-clean] removed $(LAB_ROOT)/results/blue2"; \
+	else \
+	  echo "[blue2-clean] cancelled"; \
+	fi
 
 # ── Detection Team (탐지 구현) ───────────────────────────────────────────────
 detect-setup:

@@ -28,3 +28,19 @@ cve-2025-1974-lab/
 
 # 공격 실험 결과 (SA 토큰 등 민감정보 포함 가능)
 results/attack_result_*.json
+results/**/attack_result_*.json
+results/**/attack_result_*.md
+
+# Blue Team 2 generated validation output (sanitized summaries are generated)
+results/blue2/
+
+# 원시 탐지/감사 로그 및 민감 dump 파일
+results/**/raw_audit*
+results/**/audit_raw*
+results/**/raw-audit*
+results/**/falco_raw*
+results/**/raw-falco*
+results/**/*token_dump*
+results/**/*secret_dump*
+results/**/*token-dump*
+results/**/*secret-dump*

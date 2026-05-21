@@ -1,0 +1,4 @@
+networkpolicy_cni_status: candidate-found
+
+kube-system calico-kube-controllers-7798b89656-j79pm
+kube-system calico-node-bfcsj

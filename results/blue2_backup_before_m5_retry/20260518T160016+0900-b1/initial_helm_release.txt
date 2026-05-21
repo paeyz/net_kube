@@ -1,0 +1,3 @@
+# ingress-nginx Helm release (initial)
+NAME         	NAMESPACE    	REVISION	UPDATED                             	STATUS  	CHART               	APP VERSION
+ingress-nginx	ingress-nginx	4       	2026-05-18 15:49:29.567727 +0900 KST	deployed	ingress-nginx-4.11.5	1.11.5     

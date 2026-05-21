@@ -1,0 +1,8 @@
+scope	namespace	binding_kind	binding_name	role_kind	role_name	subjects
+cluster	-	ClusterRoleBinding	ingress-nginx-webhook-read	ClusterRole	ingress-nginx-webhook-read	ServiceAccount:ingress-nginx:ingress-nginx;
+cluster	-	ClusterRoleBinding	system:basic-user	ClusterRole	system:basic-user	Group::system:authenticated;
+cluster	-	ClusterRoleBinding	system:discovery	ClusterRole	system:discovery	Group::system:authenticated;
+cluster	-	ClusterRoleBinding	system:public-info-viewer	ClusterRole	system:public-info-viewer	Group::system:authenticated;Group::system:unauthenticated;
+cluster	-	ClusterRoleBinding	system:service-account-issuer-discovery	ClusterRole	system:service-account-issuer-discovery	Group::system:serviceaccounts;
+namespace	ingress-nginx	RoleBinding	ingress-nginx	Role	ingress-nginx	ServiceAccount:ingress-nginx:ingress-nginx;
+namespace	ingress-nginx	RoleBinding	ingress-nginx-hardened	Role	ingress-nginx-hardened	ServiceAccount:ingress-nginx:ingress-nginx;
